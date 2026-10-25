@@ -2,7 +2,7 @@ name: pos_inventory_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.13.5
@@ -22,7 +22,11 @@ dependencies:
   flutter_slidable: ^3.0.0
   print_bluetooth_thermal: ^1.2.5
   esc_pos_utils_plus: ^2.0.4
-  in_app_update: ^5.0.0
+  crypto: ^3.0.7
+  http: ^1.6.0
+  open_filex: ^5.0.0
+  package_info_plus: ^10.2.2
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

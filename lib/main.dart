@@ -41,7 +41,6 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
-  final AppUpdateService _appUpdateService = AppUpdateService();
 
   final List<Widget> _screens = [
     const InventoryHomeScreen(),
@@ -49,52 +48,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     const FiadosScreen(),
     const SalesHistoryScreen(),
   ];
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _appUpdateService.checkForFlexibleUpdate(
-        onUpdateDownloaded: _showUpdateDownloaded,
-        onError: _showUpdateError,
-      );
-    });
-  }
-
-  @override
-  void dispose() {
-    _appUpdateService.dispose();
-    super.dispose();
-  }
-
-  void _showUpdateDownloaded() {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: const Text('La actualización está lista para instalar.'),
-          action: SnackBarAction(
-            label: 'Reiniciar',
-            onPressed: () async {
-              try {
-                await _appUpdateService.completeFlexibleUpdate();
-              } catch (error) {
-                _showUpdateError('No se pudo instalar la actualización: $error');
-              }
-            },
-          ),
-          duration: const Duration(days: 1),
-        ),
-      );
-  }
-
-  void _showUpdateError(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -209,6 +162,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
         title: const Text('Catálogo de Inventario'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
+        actions: const [AppUpdateButton()],
       ),
       body: Column(
         children: [
@@ -966,6 +920,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         actions: [
+          const AppUpdateButton(),
           IconButton(
             tooltip: 'Impresoras térmicas',
             onPressed: () {

@@ -1,0 +1,9 @@
+{
+  "published": false,
+  "packageName": "com.jafeth.posmovil",
+  "version": "1.0.1",
+  "buildNumber": 2,
+  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.1/POSMOVIL-1.0.1.apk",
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "releaseNotes": "Escribe aquí los cambios de esta versión."
+}

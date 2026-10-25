@@ -1,0 +1,9 @@
+{
+  "published": true,
+  "packageName": "com.jafeth.posmovil",
+  "version": "1.0.1",
+  "buildNumber": 2,
+  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.1/POSMOVIL-1.0.1.apk",
+  "sha256": "8eda0974c12ffd88ac8ef84729d4fa239aa7d7212423365133be6224479d4e77",
+  "releaseNotes": "Primera version firmada de POSMOVIL con actualizaciones desde GitHub y soporte para impresoras termicas Bluetooth."
+}
