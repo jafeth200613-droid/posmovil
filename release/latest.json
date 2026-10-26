@@ -1,9 +1,9 @@
 {
   "published": true,
   "packageName": "com.jafeth.posmovil",
-  "version": "1.0.2",
-  "buildNumber": 3,
-  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.2/POSMOVIL-1.0.2.apk",
-  "sha256": "c11e71a61b023ecec1b32861f719d3823fb6a25efade9f170e5742cfe4e28fde",
-  "releaseNotes": "Corrige el inicio de la camara y muestra instrucciones de permiso con reintento en el escaner."
+  "version": "1.0.3",
+  "buildNumber": 4,
+  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.3/POSMOVIL-1.0.3.apk",
+  "sha256": "7b56891ee8671f892c7f2ed9548ea07b51f3bd061cdd6588a4c2c6e8fa7ff07e",
+  "releaseNotes": "Agrega reportes de ingresos y unidades vendidas por dia, semana y mes, con grafico y ranking de productos."
 }
