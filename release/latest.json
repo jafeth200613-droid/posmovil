@@ -1,9 +1,9 @@
 {
   "published": true,
   "packageName": "com.jafeth.posmovil",
-  "version": "1.0.5",
-  "buildNumber": 6,
-  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.5/POSMOVIL-1.0.5.apk",
-  "sha256": "a8e07a725c41cbba930205b20900391be21d622af2dd3bac35c4714fecc66fcf",
+  "version": "1.0.6",
+  "buildNumber": 7,
+  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.6/POSMOVIL-1.0.6.apk",
+  "sha256": "82e735449a99420e6320ef25e4b8cf80a2a3e40048c0b2cc9e1eee830018048d",
   "releaseNotes": "Actualiza la configuracion de Firebase y mantiene importacion CSV, reportes con filtros y suscripciones SINPE."
 }
