@@ -1,11 +1,13 @@
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'database_helper.dart';
 import 'sales_report_data.dart';
+import 'subscription_service.dart';
 
 class SalesHistoryScreen extends StatefulWidget {
   const SalesHistoryScreen({super.key});
@@ -19,6 +21,17 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   SalesReportPeriod _period = SalesReportPeriod.day;
   bool _loading = true;
   String? _loadError;
+  final TextEditingController _searchController = TextEditingController();
+  DateTime _rangeStart = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
+  DateTime _rangeEnd = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    DateTime.now().day + 1,
+  );
 
   static final _currencyFormat = NumberFormat.currency(
     locale: 'es_CR',
@@ -32,6 +45,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     _cargarVentas();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargarVentas() async {
     setState(() {
       _loading = true;
@@ -39,7 +58,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     });
 
     try {
-      final sales = await DatabaseHelper.instance.getSales();
+      final sales = await SubscriptionService.getSales(
+        start: _rangeStart,
+        end: _rangeEnd,
+      );
       if (!mounted) return;
       setState(() {
         _sales = sales;
@@ -58,32 +80,86 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     sales: _sales,
     period: _period,
     now: DateTime.now(),
+    start: _rangeStart,
+    end: _rangeEnd,
   );
+
+  List<Map<String, dynamic>> get _filteredSales {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) return _sales;
+    return _sales.where((sale) {
+      final name = (sale['productName'] ?? sale['product_name'] ?? '')
+          .toString()
+          .toLowerCase();
+      return name.contains(query);
+    }).toList();
+  }
 
   String _formatCurrency(num amount) => _currencyFormat.format(amount);
 
   String _periodDescription(SalesReportData report) {
-    if (_period == SalesReportPeriod.day) return 'Hoy';
-    if (_period == SalesReportPeriod.week) {
-      return 'Semana del ${report.start.day}/${report.start.month} al '
-          '${report.end.subtract(const Duration(days: 1)).day}/${report.end.month}';
+    final lastDay = report.end.subtract(const Duration(days: 1));
+    final start = DateFormat('dd/MM/yyyy').format(report.start);
+    final end = DateFormat('dd/MM/yyyy').format(lastDay);
+    return _period == SalesReportPeriod.day ? start : '$start - $end';
+  }
+
+  Future<void> _selectPeriod(SalesReportPeriod period) async {
+    final today = DateTime.now();
+    DateTime? start;
+    DateTime? end;
+
+    if (period == SalesReportPeriod.day) {
+      final selectedDate = await showDatePicker(
+        context: context,
+        initialDate: _rangeStart,
+        firstDate: DateTime(2000),
+        lastDate: DateTime(today.year, today.month, today.day),
+      );
+      if (selectedDate == null || !mounted) return;
+      start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+      end = start.add(const Duration(days: 1));
+    } else {
+      final initialStart = period == SalesReportPeriod.week
+          ? _rangeStart.subtract(Duration(days: _rangeStart.weekday - 1))
+          : DateTime(_rangeStart.year, _rangeStart.month);
+      final initialEnd = period == SalesReportPeriod.week
+          ? initialStart.add(const Duration(days: 6))
+          : DateTime(
+              initialStart.year,
+              initialStart.month + 1,
+            ).subtract(const Duration(days: 1));
+      final selectedRange = await showDateRangePicker(
+        context: context,
+        initialDateRange: DateTimeRange(
+          start: initialStart,
+          end: initialEnd.isAfter(today) ? today : initialEnd,
+        ),
+        firstDate: DateTime(2000),
+        lastDate: DateTime(today.year, today.month, today.day),
+        helpText: period == SalesReportPeriod.week
+            ? 'Selecciona la semana'
+            : 'Selecciona el rango del mes',
+      );
+      if (selectedRange == null || !mounted) return;
+      start = DateTime(
+        selectedRange.start.year,
+        selectedRange.start.month,
+        selectedRange.start.day,
+      );
+      end = DateTime(
+        selectedRange.end.year,
+        selectedRange.end.month,
+        selectedRange.end.day + 1,
+      );
     }
 
-    const months = [
-      'enero',
-      'febrero',
-      'marzo',
-      'abril',
-      'mayo',
-      'junio',
-      'julio',
-      'agosto',
-      'septiembre',
-      'octubre',
-      'noviembre',
-      'diciembre',
-    ];
-    return '${months[report.start.month - 1]} ${report.start.year}';
+    setState(() {
+      _period = period;
+      _rangeStart = start!;
+      _rangeEnd = end!;
+    });
+    await _cargarVentas();
   }
 
   void _confirmarBorrarHistorial() {
@@ -105,6 +181,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               foregroundColor: Colors.white,
             ),
             onPressed: () async {
+              await SubscriptionService.deleteAllSales();
               await DatabaseHelper.instance.deleteAllSales();
               if (!dialogContext.mounted) return;
               Navigator.pop(dialogContext);
@@ -118,10 +195,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
 
   Future<void> _eliminarVenta(Map<String, dynamic> sale) async {
-    final id = sale['id'] as int;
-    await DatabaseHelper.instance.deleteSale(id);
+    final firestoreId = sale['firestoreId']?.toString();
+    if (firestoreId == null) return;
+    await SubscriptionService.deleteSale(firestoreId);
     if (!mounted) return;
-    setState(() => _sales.removeWhere((item) => item['id'] == id));
+    setState(
+      () => _sales.removeWhere((item) => item['firestoreId'] == firestoreId),
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Venta eliminada del historial')),
     );
@@ -187,14 +267,11 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          switch (_period) {
-            SalesReportPeriod.day => 'Ingresos por hora',
-            SalesReportPeriod.week => 'Ingresos por día',
-            SalesReportPeriod.month => 'Ingresos por semana',
-          },
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
+        Text(switch (_period) {
+          SalesReportPeriod.day => 'Ingresos por hora',
+          SalesReportPeriod.week => 'Ingresos por día',
+          SalesReportPeriod.month => 'Ingresos por semana',
+        }, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
         Text(
           _periodDescription(report),
@@ -363,8 +440,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
 
   Widget _buildSaleItem(Map<String, dynamic> sale) {
+    final rawDate = sale['date'];
+    final date = rawDate is Timestamp
+        ? DateFormat('dd/MM/yyyy HH:mm').format(rawDate.toDate())
+        : rawDate?.toString() ?? '';
     return Dismissible(
-      key: Key(sale['id'].toString()),
+      key: Key(sale['firestoreId'].toString()),
       direction: DismissDirection.endToStart,
       background: Container(
         alignment: Alignment.centerRight,
@@ -381,10 +462,11 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           child: Icon(Icons.receipt),
         ),
         title: Text(
-          sale['product_name']?.toString() ?? 'Producto sin nombre',
+          (sale['productName'] ?? sale['product_name'])?.toString() ??
+              'Producto sin nombre',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: Text('Fecha: ${sale['date']}'),
+        subtitle: Text('Fecha: $date'),
         trailing: Text(
           _formatCurrency((sale['price'] as num?) ?? 0),
           style: const TextStyle(
@@ -400,6 +482,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final report = _report;
+    final filteredSales = _filteredSales;
 
     return Scaffold(
       appBar: AppBar(
@@ -448,7 +531,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                       ],
                       selected: {_period},
                       onSelectionChanged: (selection) {
-                        setState(() => _period = selection.first);
+                        _selectPeriod(selection.first);
                       },
                     ),
                   ),
@@ -482,7 +565,33 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   sliver: SliverToBoxAdapter(child: _buildTopProducts(report)),
                 ),
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
+                  sliver: SliverToBoxAdapter(
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Buscar producto en el historial',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchController.text.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Limpiar búsqueda',
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() {});
+                                },
+                                icon: const Icon(Icons.clear),
+                              ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                   sliver: SliverToBoxAdapter(
                     child: Text(
                       'Historial completo de ventas',
@@ -493,17 +602,19 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     ),
                   ),
                 ),
-                if (_sales.isEmpty)
+                if (filteredSales.isEmpty)
                   const SliverFillRemaining(
                     hasScrollBody: false,
-                    child: Center(child: Text('No hay ventas registradas')),
+                    child: Center(
+                      child: Text('No hay ventas para este periodo o búsqueda'),
+                    ),
                   )
                 else
                   SliverList.builder(
-                    itemCount: _sales.length,
+                    itemCount: filteredSales.length,
                     itemBuilder: (context, index) => Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _buildSaleItem(_sales[index]),
+                      child: _buildSaleItem(filteredSales[index]),
                     ),
                   ),
                 const SliverToBoxAdapter(child: SizedBox(height: 24)),

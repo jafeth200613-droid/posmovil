@@ -168,6 +168,28 @@ class DatabaseHelper {
     return await db.insert('products', row);
   }
 
+  Future<void> insertProducts(List<Map<String, dynamic>> products) async {
+    final db = await instance.database;
+    await db.transaction((transaction) async {
+      final existingCodes = await transaction.query(
+        'products',
+        columns: ['code'],
+      );
+      final codes = existingCodes
+          .map((product) => product['code']?.toString())
+          .whereType<String>()
+          .toSet();
+
+      for (final product in products) {
+        final code = product['code'] as String;
+        if (!codes.add(code)) {
+          throw StateError('El código "$code" ya existe en el inventario.');
+        }
+        await transaction.insert('products', product);
+      }
+    });
+  }
+
   Future<List<Map<String, dynamic>>> getProducts() async {
     final db = await instance.database;
     return await db.query('products', orderBy: 'name ASC');

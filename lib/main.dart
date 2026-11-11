@@ -1,17 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'add_product_screen.dart';
+import 'admin_screen.dart';
 import 'app_update_service.dart';
+import 'auth_screen.dart';
 import 'database_helper.dart';
 import 'edit_product_screen.dart';
 import 'fiados_screen.dart';
+import 'product_csv_import_service.dart';
 import 'sales_history_screen.dart';
 import 'scanner_screen.dart';
+import 'subscription_screen.dart';
+import 'subscription_service.dart';
 import 'thermal_printer_service.dart';
 import 'thermal_printers_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   runApp(const MyApp());
 }
 
@@ -27,7 +36,29 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: const MainNavigationScreen(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const AuthScreen();
+        }
+        return const SubscriptionGate(child: MainNavigationScreen());
+      },
     );
   }
 }
@@ -42,17 +73,42 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = [
-    const InventoryHomeScreen(),
-    const PosSalesScreen(),
-    const FiadosScreen(),
-    const SalesHistoryScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final isAdmin = SubscriptionService.isAdmin();
+    final screens = <Widget>[
+      const InventoryHomeScreen(),
+      const PosSalesScreen(),
+      const FiadosScreen(),
+      const SalesHistoryScreen(),
+      if (isAdmin) const AdminScreen(),
+    ];
+    final destinations = <NavigationDestination>[
+      const NavigationDestination(
+        icon: Icon(Icons.inventory_2),
+        label: 'Inventario',
+      ),
+      const NavigationDestination(
+        icon: Icon(Icons.point_of_sale),
+        label: 'POS',
+      ),
+      const NavigationDestination(icon: Icon(Icons.book), label: 'Fiados'),
+      const NavigationDestination(
+        icon: Icon(Icons.bar_chart),
+        label: 'Reportes',
+      ),
+      if (isAdmin)
+        const NavigationDestination(
+          icon: Icon(Icons.admin_panel_settings),
+          label: 'Admin',
+        ),
+    ];
+    if (_currentIndex >= screens.length) {
+      _currentIndex = 0;
+    }
+
     return Scaffold(
-      body: _screens[_currentIndex],
+      body: screens[_currentIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -60,15 +116,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             _currentIndex = index;
           });
         },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.inventory_2),
-            label: 'Inventario',
-          ),
-          NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'POS'),
-          NavigationDestination(icon: Icon(Icons.book), label: 'Fiados'),
-          NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Reportes'),
-        ],
+        destinations: destinations,
       ),
     );
   }
@@ -88,6 +136,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
   List<Map<String, dynamic>> _productos = [];
   List<Map<String, dynamic>> _productosFiltrados = [];
   final TextEditingController _searchController = TextEditingController();
+  bool _isImportingCsv = false;
 
   String _categoriaSeleccionada = 'Todos';
   final List<String> _categoriasFiltro = [
@@ -155,6 +204,32 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     if (resultado == true) _cargarProductos();
   }
 
+  Future<void> _importarCsv() async {
+    setState(() => _isImportingCsv = true);
+    try {
+      final importedCount = await ProductCsvImportService.importProducts();
+      if (!mounted || importedCount == null) return;
+      await _cargarProductos();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$importedCount productos importados correctamente.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo importar el CSV: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isImportingCsv = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -181,6 +256,26 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
               ),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _isImportingCsv ? null : _importarCsv,
+                icon: _isImportingCsv
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.upload_file),
+                label: Text(
+                  _isImportingCsv ? 'Importando CSV...' : 'Importar CSV',
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
           SizedBox(
             height: 45,
             child: ListView.builder(
@@ -447,6 +542,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
       context,
       MaterialPageRoute(builder: (context) => const ScannerScreen()),
     );
+    if (!mounted) return;
 
     if (codigoEscaneado != null && codigoEscaneado is String) {
       final productoEncontrado = _productos.firstWhere(
@@ -488,6 +584,16 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
           'price': item['price'],
           'date': DateTime.now().toString().substring(0, 16),
         });
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await SubscriptionService.recordSale(
+            uid: user.uid,
+            email: user.email ?? '',
+            productName: item['name'],
+            price: item['price'],
+            date: DateTime.now(),
+          );
+        }
       }
     }
 

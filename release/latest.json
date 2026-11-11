@@ -1,9 +1,9 @@
 {
   "published": true,
   "packageName": "com.jafeth.posmovil",
-  "version": "1.0.3",
-  "buildNumber": 4,
-  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.3/POSMOVIL-1.0.3.apk",
-  "sha256": "7b56891ee8671f892c7f2ed9548ea07b51f3bd061cdd6588a4c2c6e8fa7ff07e",
-  "releaseNotes": "Agrega reportes de ingresos y unidades vendidas por dia, semana y mes, con grafico y ranking de productos."
+  "version": "1.0.4",
+  "buildNumber": 5,
+  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.4/POSMOVIL-1.0.4.apk",
+  "sha256": "6e3a7f666dc9961bdee4311298871de494fef8525a349aec8d88dfa0513c08c8",
+  "releaseNotes": "Agrega importacion masiva de productos CSV, filtros de fecha y busqueda en reportes, y actualizaciones de Firebase."
 }

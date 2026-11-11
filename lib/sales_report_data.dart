@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 enum SalesReportPeriod { day, week, month }
 
 class SalesReportBucket {
@@ -42,9 +44,11 @@ class SalesReportData {
     required List<Map<String, dynamic>> sales,
     required SalesReportPeriod period,
     required DateTime now,
+    DateTime? start,
+    DateTime? end,
   }) {
-    final start = periodStart(period, now);
-    final end = periodEnd(period, start);
+    final reportStart = start ?? periodStart(period, now);
+    final reportEnd = end ?? periodEnd(period, reportStart);
     final bucketLabels = _bucketLabels(period);
     final bucketRevenue = List<double>.filled(bucketLabels.length, 0);
     final productUnits = <String, int>{};
@@ -53,15 +57,22 @@ class SalesReportData {
     var unitsSold = 0;
 
     for (final sale in sales) {
-      final parsedDate = DateTime.tryParse(sale['date']?.toString() ?? '');
+      final rawDate = sale['date'];
+      final parsedDate = rawDate is Timestamp
+          ? rawDate.toDate()
+          : DateTime.tryParse(rawDate?.toString() ?? '');
       final rawPrice = sale['price'];
       if (parsedDate == null || rawPrice is! num) continue;
 
-      final saleDate = parsedDate.toLocal();
-      if (saleDate.isBefore(start) || !saleDate.isBefore(end)) continue;
+      final saleDate = parsedDate;
+      if (saleDate.isBefore(reportStart) || !saleDate.isBefore(reportEnd)) {
+        continue;
+      }
 
       final price = rawPrice.toDouble();
-      final productName = sale['product_name']?.toString().trim();
+      final productName = (sale['productName'] ?? sale['product_name'])
+          ?.toString()
+          .trim();
       final name = productName == null || productName.isEmpty
           ? 'Producto sin nombre'
           : productName;
@@ -70,7 +81,11 @@ class SalesReportData {
       totalIncome += price;
       unitsSold++;
       bucketRevenue[bucketIndex] += price;
-      productUnits.update(name, (count) => count + 1, ifAbsent: () => 1);
+      productUnits.update(
+        name,
+        (currentCount) => currentCount + 1,
+        ifAbsent: () => 1,
+      );
       productRevenue.update(
         name,
         (revenue) => revenue + price,
@@ -78,24 +93,24 @@ class SalesReportData {
       );
     }
 
-    final topProducts = productUnits.keys.map((name) {
-      return ProductSalesSummary(
-        name: name,
-        unitsSold: productUnits[name]!,
-        revenue: productRevenue[name]!,
-      );
-    }).toList()
-      ..sort((left, right) {
-        final unitsComparison = right.unitsSold.compareTo(left.unitsSold);
-        return unitsComparison != 0
-            ? unitsComparison
-            : right.revenue.compareTo(left.revenue);
-      });
+    final topProducts =
+        productUnits.keys.map((name) {
+          return ProductSalesSummary(
+            name: name,
+            unitsSold: productUnits[name]!,
+            revenue: productRevenue[name]!,
+          );
+        }).toList()..sort((left, right) {
+          final unitsComparison = right.unitsSold.compareTo(left.unitsSold);
+          return unitsComparison != 0
+              ? unitsComparison
+              : right.revenue.compareTo(left.revenue);
+        });
 
     return SalesReportData(
       period: period,
-      start: start,
-      end: end,
+      start: reportStart,
+      end: reportEnd,
       totalIncome: totalIncome,
       unitsSold: unitsSold,
       buckets: [
@@ -113,7 +128,9 @@ class SalesReportData {
     final today = DateTime(now.year, now.month, now.day);
     return switch (period) {
       SalesReportPeriod.day => today,
-      SalesReportPeriod.week => today.subtract(Duration(days: today.weekday - 1)),
+      SalesReportPeriod.week => today.subtract(
+        Duration(days: today.weekday - 1),
+      ),
       SalesReportPeriod.month => DateTime(now.year, now.month),
     };
   }

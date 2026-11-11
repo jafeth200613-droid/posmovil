@@ -1,0 +1,69 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == 'jafeth200613@gmail.com';
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.email == request.auth.token.email.lower()
+        && request.resource.data.plan == 'trial'
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.keys().hasOnly([
+          'email',
+          'plan',
+          'status',
+          'createdAt',
+          'expiresAt'
+        ]);
+      allow update, delete: if isAdmin();
+    }
+
+    match /subscriptionRequests/{requestId} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.uid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    match /salesHistory/{saleId} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.uid == request.auth.uid);
+      allow update: if isAdmin();
+      allow delete: if isAdmin()
+        || (signedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    match /products/{productId} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'code',
+          'name',
+          'category',
+          'price',
+          'stock',
+          'createdAt'
+        ]);
+      allow read, update, delete: if signedIn()
+        && resource.data.uid == request.auth.uid;
+    }
+  }
+}
