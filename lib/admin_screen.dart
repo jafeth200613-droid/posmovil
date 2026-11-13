@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import 'currency_format.dart';
 import 'subscription_service.dart';
 
 class AdminScreen extends StatelessWidget {
@@ -77,7 +78,9 @@ class _PendingRequestsTab extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text('Monto reportado: ₡${data['amount'] ?? 400}'),
+                    Text(
+                      'Monto reportado: ₡${formatMoney((data['amount'] as num?) ?? SubscriptionService.monthlyPrice)}',
+                    ),
                     const SizedBox(height: 12),
                     const Text(
                       'Verificación manual SINPE en la cuenta bancaria.',
@@ -169,7 +172,7 @@ class _SalesHistoryTab extends StatelessWidget {
                 subtitle: Text('${sale['email'] ?? ''}\n$dateText'),
                 isThreeLine: true,
                 trailing: Text(
-                  '₡$price',
+                  '₡${formatMoney((price as num?) ?? 0)}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),

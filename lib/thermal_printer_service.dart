@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
-import 'package:intl/intl.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
+
+import 'sales_ticket_format.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SavedThermalPrinter {
@@ -64,8 +66,7 @@ class ThermalPrinterService {
   static Future<void> savePrinter(SavedThermalPrinter printer) async {
     final preferences = await SharedPreferences.getInstance();
     final printers = await getSavedPrinters();
-    final hasDefaultPrinter =
-        preferences.getString(_defaultPrinterKey) != null;
+    final hasDefaultPrinter = preferences.getString(_defaultPrinterKey) != null;
     final index = printers.indexWhere(
       (saved) => saved.macAddress == printer.macAddress,
     );
@@ -122,78 +123,50 @@ class ThermalPrinterService {
     required DateTime date,
   }) async {
     final profile = await CapabilityProfile.load();
-    final paperSize = printer.paperWidth == 80 ? PaperSize.mm80 : PaperSize.mm58;
+    final paperSize = printer.paperWidth == 80
+        ? PaperSize.mm80
+        : PaperSize.mm58;
     final generator = Generator(paperSize, profile);
-    final bytes = <int>[
-      ...generator.reset(),
-      ...generator.text(
-        'TICKET DE VENTA',
-        styles: const PosStyles(
-          align: PosAlign.center,
-          bold: true,
-          width: PosTextSize.size2,
-          height: PosTextSize.size2,
-        ),
-        linesAfter: 1,
-      ),
-      ...generator.text(
-        DateFormat('dd/MM/yyyy HH:mm').format(date),
-        styles: const PosStyles(align: PosAlign.center),
-      ),
-      ...generator.hr(),
-    ];
+    final ticketLines = formatSalesTicketLines(
+      items: items,
+      total: total,
+      date: date,
+    );
+    final bytes = <int>[...generator.reset()];
 
-    for (final item in items) {
-      final quantity = (item['quantity'] as num).toInt();
-      final price = (item['price'] as num).toDouble();
-      final subtotal = price * quantity;
+    for (var index = 0; index < ticketLines.length; index++) {
+      final line = formatTicketLineForPrinter(ticketLines[index]);
+      final isTitle = index == 0;
+      final isDate = index == 1;
+      final isTotal = index == ticketLines.length - 2;
+      final isThanks = index == ticketLines.length - 1;
       bytes.addAll(
         generator.text(
-          '$quantity x ${item['name']}',
-          styles: const PosStyles(codeTable: 'CP1252'),
-        ),
-      );
-      bytes.addAll(
-        generator.row([
-          PosColumn(text: '', width: 6),
-          PosColumn(
-            text: 'CRC ${_formatAmount(subtotal)}',
-            width: 6,
-            styles: const PosStyles(align: PosAlign.right),
+          line,
+          styles: PosStyles(
+            align: isTitle || isDate || isThanks
+                ? PosAlign.center
+                : isTotal
+                ? PosAlign.right
+                : PosAlign.left,
+            bold: isTitle || isTotal,
+            width: isTitle || isTotal ? PosTextSize.size2 : PosTextSize.size1,
+            height: isTitle || isTotal ? PosTextSize.size2 : PosTextSize.size1,
           ),
-        ]),
+        ),
       );
     }
 
-    bytes
-      ..addAll(generator.hr())
-      ..addAll(
-        generator.text(
-          'TOTAL CRC ${_formatAmount(total)}',
-          styles: const PosStyles(
-            align: PosAlign.right,
-            bold: true,
-            width: PosTextSize.size2,
-            height: PosTextSize.size2,
-          ),
-          linesAfter: 1,
-        ),
-      )
-      ..addAll(
-        generator.text(
-          'Gracias por su compra',
-          styles: const PosStyles(align: PosAlign.center),
-          linesAfter: 2,
-        ),
-      )
-      ..addAll(generator.feed(3));
+    bytes.addAll(generator.feed(3));
 
     await _sendToPrinter(printer, bytes);
   }
 
   static Future<void> printTest(SavedThermalPrinter printer) async {
     final profile = await CapabilityProfile.load();
-    final paperSize = printer.paperWidth == 80 ? PaperSize.mm80 : PaperSize.mm58;
+    final paperSize = printer.paperWidth == 80
+        ? PaperSize.mm80
+        : PaperSize.mm58;
     final generator = Generator(paperSize, profile);
     final bytes = <int>[
       ...generator.reset(),
@@ -242,7 +215,4 @@ class ThermalPrinterService {
       await PrintBluetoothThermal.disconnect;
     }
   }
-
-  static String _formatAmount(double amount) =>
-      amount.toStringAsFixed(2).replaceFirst('.', ',');
 }

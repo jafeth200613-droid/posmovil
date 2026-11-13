@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'currency_format.dart';
 import 'subscription_service.dart';
 
 class SubscriptionGate extends StatefulWidget {
@@ -89,7 +90,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   Future<void> _openWhatsapp() async {
     final message =
         'Hola, quiero activar POSMOVIL. '
-        'Pagé ₡${SubscriptionService.monthlyPrice} por SINPE Móvil. '
+        'Pagé ₡${formatMoney(SubscriptionService.monthlyPrice)} por SINPE Móvil. '
         'Mi correo es: ${widget.user.email}. '
         'Adjunto el comprobante del pago.';
     final uri = Uri.https('wa.me', '/${SubscriptionService.whatsappNumber}', {
@@ -197,9 +198,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        const Text(
-                          'Monto: ₡400',
-                          style: TextStyle(fontSize: 18),
+                        Text(
+                          'Monto: ₡${formatMoney(SubscriptionService.monthlyPrice)}',
+                          style: const TextStyle(fontSize: 18),
                         ),
                         const SizedBox(height: 8),
                         Text(

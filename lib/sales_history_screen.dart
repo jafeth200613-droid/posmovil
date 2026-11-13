@@ -36,7 +36,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   static final _currencyFormat = NumberFormat.currency(
     locale: 'es_CR',
     symbol: '₡',
-    decimalDigits: 0,
+    decimalDigits: 2,
   );
 
   @override
@@ -387,9 +387,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
 
   String _formatCompactCurrency(double amount) {
-    if (amount >= 1000000) return '₡${(amount / 1000000).toStringAsFixed(1)} M';
-    if (amount >= 1000) return '₡${(amount / 1000).toStringAsFixed(1)} mil';
-    return '₡${amount.round()}';
+    if (amount >= 1000000) {
+      return '₡${(amount / 1000000).toStringAsFixed(2)} M';
+    }
+    if (amount >= 1000) {
+      return '₡${(amount / 1000).toStringAsFixed(2)} mil';
+    }
+    return '₡${amount.toStringAsFixed(2)}';
   }
 
   Widget _buildTopProducts(SalesReportData report) {

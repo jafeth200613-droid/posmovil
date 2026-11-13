@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -7,10 +10,14 @@ import 'add_product_screen.dart';
 import 'admin_screen.dart';
 import 'app_update_service.dart';
 import 'auth_screen.dart';
+import 'currency_format.dart';
 import 'database_helper.dart';
 import 'edit_product_screen.dart';
 import 'fiados_screen.dart';
+import 'password_reset_link.dart';
+import 'password_reset_link_screen.dart';
 import 'product_csv_import_service.dart';
+import 'sales_ticket_format.dart';
 import 'sales_history_screen.dart';
 import 'scanner_screen.dart';
 import 'subscription_screen.dart';
@@ -24,12 +31,69 @@ void main() async {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  late final AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+  final Set<String> _handledResetCodes = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _appLinks = AppLinks();
+    _linkSubscription = _appLinks.uriLinkStream.listen(
+      _handleIncomingLink,
+      onError: (Object error, StackTrace stackTrace) {
+        debugPrint('No se pudo recibir el enlace de recuperación: $error');
+      },
+    );
+    unawaited(_handleInitialLink());
+  }
+
+  Future<void> _handleInitialLink() async {
+    try {
+      final initialLink = await _appLinks.getInitialLink();
+      if (initialLink != null) _handleIncomingLink(initialLink);
+    } catch (error) {
+      debugPrint('No se pudo leer el enlace inicial: $error');
+    }
+  }
+
+  void _handleIncomingLink(Uri uri) {
+    final resetCode = extractPasswordResetCode(uri);
+    if (resetCode == null || !_handledResetCodes.add(resetCode)) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final navigator = _navigatorKey.currentState;
+      if (navigator == null) {
+        _handledResetCodes.remove(resetCode);
+        return;
+      }
+      navigator.push<void>(
+        MaterialPageRoute(
+          builder: (_) => PasswordResetLinkScreen(oobCode: resetCode),
+        ),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'POS e Inventario',
       theme: ThemeData(
@@ -372,7 +436,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  '₡${producto['price']}',
+                                  '₡${formatMoney(producto['price'] as num)}',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     color: Colors.indigo,
@@ -534,7 +598,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
           (item['price'] as num).toDouble() *
           (item['quantity'] as num).toDouble();
     }
-    return total;
+    return double.parse(total.toStringAsFixed(2));
   }
 
   void _abrirEscaner() async {
@@ -662,25 +726,13 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
       return;
     }
 
-    final total = _calcularTotalCarrito();
-    final ticket = StringBuffer()
-      ..writeln('🧾 *TICKET DE COMPRA - PULPERÍA* 🏪')
-      ..writeln('Fecha: ${DateTime.now().toString().substring(0, 16)}')
-      ..writeln('----------------------------------');
+    final ticket = formatSalesTicketLines(
+      items: _cart,
+      total: _calcularTotalCarrito(),
+      date: DateTime.now(),
+    ).join('\n');
 
-    for (final item in _cart) {
-      final subtotal =
-          (item['price'] as num).toDouble() * (item['quantity'] as num).toInt();
-      ticket.writeln('▪️ ${item['name']} x${item['quantity']} - ₡$subtotal');
-    }
-
-    ticket
-      ..writeln('----------------------------------')
-      ..writeln('👉 *TOTAL A PAGAR: ₡$total*')
-      ..writeln()
-      ..write('¡Gracias por su compra! 🇨🇷');
-
-    final whatsappUrl = Uri.https('wa.me', '/', {'text': ticket.toString()});
+    final whatsappUrl = Uri.https('wa.me', '/', {'text': ticket});
 
     try {
       final launched = await launchUrl(
@@ -727,7 +779,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Total a fiar: ₡$total',
+                'Total a fiar: ₡${formatMoney(total)}',
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
@@ -864,13 +916,13 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
                                     ),
                                   ),
                                   subtitle: Text(
-                                    'Precio: ₡${item['price']} x ${item['quantity']}',
+                                    'Precio: ₡${formatMoney(item['price'] as num)} x ${item['quantity']}',
                                   ),
                                   trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
-                                        '₡${item['price'] * item['quantity']}',
+                                        '₡${formatMoney((item['price'] as num) * (item['quantity'] as num))}',
                                         style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                           color: Colors.indigo,
@@ -917,7 +969,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
                         ),
                       ),
                       Text(
-                        '₡$total',
+                        '₡${formatMoney(total)}',
                         style: const TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
@@ -1147,7 +1199,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                '₡${producto['price']}',
+                                '₡${formatMoney(producto['price'] as num)}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   color: Colors.indigo,
@@ -1185,7 +1237,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       Text(
-                        'Total: ₡$totalMontoCarrito',
+                        'Total: ₡${formatMoney(totalMontoCarrito)}',
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,

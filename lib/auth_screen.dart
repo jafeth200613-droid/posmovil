@@ -61,11 +61,32 @@ class _AuthScreenState extends State<AuthScreen> {
       );
       return;
     }
-    await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Correo de recuperación enviado.')),
-    );
+    setState(() => _isLoading = true);
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(
+        email: email,
+        actionCodeSettings: ActionCodeSettings(
+          url: 'https://posmovil-app.firebaseapp.com',
+          handleCodeInApp: true,
+          androidPackageName: 'com.jafeth.posmovil',
+          iOSBundleId: 'com.example.posInventoryApp',
+        ),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Correo de recuperación enviado.')),
+      );
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message ?? 'No se pudo enviar el correo.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override

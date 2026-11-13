@@ -1,9 +1,9 @@
 {
   "published": true,
   "packageName": "com.jafeth.posmovil",
-  "version": "1.0.6",
-  "buildNumber": 7,
-  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.6/POSMOVIL-1.0.6.apk",
-  "sha256": "82e735449a99420e6320ef25e4b8cf80a2a3e40048c0b2cc9e1eee830018048d",
-  "releaseNotes": "Actualiza la configuracion de Firebase y mantiene importacion CSV, reportes con filtros y suscripciones SINPE."
+  "version": "1.0.7",
+  "buildNumber": 8,
+  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.7/POSMOVIL-1.0.7.apk",
+  "sha256": "d7ee47438726bff94b76dfd56e4906f5c313c828b717646f0cf37bc849c789f2",
+  "releaseNotes": "Mejora la recuperacion de contrasena en Android, muestra montos con dos decimales, actualiza el precio mensual a ₡800 y aplica el nuevo formato de ticket."
 }

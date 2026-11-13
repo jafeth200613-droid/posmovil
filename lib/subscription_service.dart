@@ -7,7 +7,7 @@ class SubscriptionService {
   static const String adminEmail = 'jafeth200613@gmail.com';
   static const String sinpeNumber = '6484-6604';
   static const String whatsappNumber = '50664846604';
-  static const int monthlyPrice = 400;
+  static const int monthlyPrice = 800;
   static const int trialDays = 2;
 
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'currency_format.dart';
 import 'database_helper.dart';
 
 class FiadosScreen extends StatefulWidget {
@@ -223,7 +224,9 @@ class _FiadosScreenState extends State<FiadosScreen> {
                 children: [
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('Saldo pendiente: ₡${fiado['amount']}'),
+                    child: Text(
+                      'Saldo pendiente: ₡${formatMoney(fiado['amount'] as num)}',
+                    ),
                   ),
                   const SizedBox(height: 8),
                   if (items.isEmpty)
@@ -243,7 +246,7 @@ class _FiadosScreenState extends State<FiadosScreen> {
                             contentPadding: EdgeInsets.zero,
                             title: Text(item['product_name'].toString()),
                             subtitle: Text(
-                              '${item['quantity']} x ₡${item['unit_price']}'
+                              '${item['quantity']} x ₡${formatMoney(item['unit_price'] as num)}'
                               ' · ${itemPaid ? 'Pagado' : 'Pendiente'}',
                             ),
                             trailing: TextButton(
@@ -367,7 +370,7 @@ class _FiadosScreenState extends State<FiadosScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Deuda actual: ₡${fiado['amount']}',
+              'Deuda actual: ₡${formatMoney(fiado['amount'] as num)}',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 16),
@@ -396,7 +399,9 @@ class _FiadosScreenState extends State<FiadosScreen> {
               double? abono = double.tryParse(abonoController.text);
               if (abono != null && abono > 0) {
                 double deudaActual = (fiado['amount'] as num).toDouble();
-                double nuevaDeuda = deudaActual - abono;
+                double nuevaDeuda = double.parse(
+                  (deudaActual - abono).toStringAsFixed(2),
+                );
 
                 if (nuevaDeuda <= 0) {
                   await DatabaseHelper.instance.setFiadoPaid(
@@ -421,7 +426,7 @@ class _FiadosScreenState extends State<FiadosScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        'Abono registrado. Nuevo saldo: ₡$nuevaDeuda',
+                        'Abono registrado. Nuevo saldo: ₡${formatMoney(nuevaDeuda)}',
                       ),
                     ),
                   );
@@ -484,7 +489,7 @@ class _FiadosScreenState extends State<FiadosScreen> {
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerRight,
                     child: Text(
-                      '₡$totalFiados',
+                      '₡${formatMoney(totalFiados)}',
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -572,7 +577,7 @@ class _FiadosScreenState extends State<FiadosScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  '₡${fiado['amount']}',
+                                  '₡${formatMoney(fiado['amount'] as num)}',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     color: Colors.orange,
@@ -644,7 +649,7 @@ class _FiadoProductSelectionDialogState
                     value: _selectedIds.contains(id),
                     title: Text(product['name'].toString()),
                     subtitle: Text(
-                      '₡${product['price']} · Stock ${product['stock']}',
+                      '₡${formatMoney(product['price'] as num)} · Stock ${product['stock']}',
                     ),
                     onChanged: (selected) {
                       setState(() {
@@ -728,7 +733,7 @@ class _FiadoAddProductDialogState extends State<_FiadoAddProductDialog> {
                   (product) => DropdownMenuItem(
                     value: product['id'] as int,
                     child: Text(
-                      '${product['name']} · ₡${product['price']}',
+                      '${product['name']} · ₡${formatMoney(product['price'] as num)}',
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -765,7 +770,7 @@ class _FiadoAddProductDialogState extends State<_FiadoAddProductDialog> {
           Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              'Total: ₡${(selectedProduct['price'] as num) * _quantity}',
+              'Total: ₡${formatMoney((selectedProduct['price'] as num) * _quantity)}',
             ),
           ),
         ],

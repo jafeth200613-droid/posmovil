@@ -56,13 +56,14 @@ Después genera el APK firmado:
 flutter build apk --release
 ```
 
-La primera release publicada es `1.0.1+2`. La versión actual es `1.0.6+7`. El APK se genera en
+La primera release publicada es `1.0.1+2`. La versión actual es `1.0.7+8`. El APK se genera en
 `build/app/outputs/flutter-apk/app-release.apk`. Antes de instalarlo encima de
 la app debug actual, respalda sus datos y desinstálala: la firma de producción
 es distinta y Android no permite actualizar entre firmas diferentes.
 
-Las releases `v1.0.1` a `v1.0.5` están publicadas; `v1.0.6` actualiza la
-configuración de Firebase. Para futuras versiones, usa una etiqueta superior, adjunta el APK
+Las releases `v1.0.1` a `v1.0.6` están publicadas; `v1.0.7` incluye la
+recuperación de contraseña mediante enlaces Android, precios con dos decimales,
+el precio mensual de ₡800 y el formato neutro del ticket. Para futuras versiones, usa una etiqueta superior, adjunta el APK
 con el nombre `POSMOVIL-<versión>.apk` y adjunta también `latest.json`, rellenado con la plantilla
 de `release/latest.json.example`, el SHA-256 real del APK y
 `"published": true`. En futuras versiones incrementa el número después de `+`
