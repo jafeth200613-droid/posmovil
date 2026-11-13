@@ -1,5 +1,10 @@
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'fiado_sales.dart';
 
 class SubscriptionService {
   SubscriptionService._();
@@ -12,6 +17,7 @@ class SubscriptionService {
 
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
+  static Future<String>? _fiadoSalesDeviceId;
 
   static bool isAdmin([User? user]) {
     final email = (user ?? _auth.currentUser)?.email?.toLowerCase();
@@ -65,6 +71,123 @@ class SubscriptionService {
       'price': price,
       'date': Timestamp.fromDate(date),
     });
+  }
+
+  static Future<void> recordFiadoSales({
+    required int fiadoId,
+    required String clientName,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('Inicia sesión para registrar la venta del fiado.');
+    }
+
+    final records = buildFiadoSaleRecords(
+      uid: user.uid,
+      email: user.email ?? '',
+      deviceId: await _getFiadoSalesDeviceId(),
+      fiadoId: fiadoId,
+      clientName: clientName,
+      items: items,
+      date: DateTime.now(),
+    );
+
+    try {
+      await _writeFiadoSaleRecords(records);
+    } catch (error, stackTrace) {
+      try {
+        await _deleteFiadoSaleRecords(records);
+      } catch (cleanupError) {
+        throw StateError(
+          'No se pudo completar el registro de la venta ($error) ni limpiar '
+          'los registros parciales ($cleanupError).',
+        );
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  static Future<void> deleteFiadoSales({
+    required int fiadoId,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('Inicia sesión para eliminar la venta del fiado.');
+    }
+    if (items.isEmpty) return;
+
+    final records = buildFiadoSaleRecords(
+      uid: user.uid,
+      email: user.email ?? '',
+      deviceId: await _getFiadoSalesDeviceId(),
+      fiadoId: fiadoId,
+      clientName: '',
+      items: items,
+      date: DateTime.now(),
+    );
+    await _deleteFiadoSaleRecords(records);
+  }
+
+  static Future<String> _getFiadoSalesDeviceId() {
+    final existing = _fiadoSalesDeviceId;
+    if (existing != null) return existing;
+
+    final pending = _loadFiadoSalesDeviceId();
+    _fiadoSalesDeviceId = pending;
+    return pending.catchError((Object error) {
+      _fiadoSalesDeviceId = null;
+      throw error;
+    });
+  }
+
+  static Future<String> _loadFiadoSalesDeviceId() async {
+    const preferenceKey = 'fiado_sales_device_id';
+    final preferences = await SharedPreferences.getInstance();
+    final existing = preferences.getString(preferenceKey);
+    if (existing != null && existing.isNotEmpty) return existing;
+
+    final random = Random.secure();
+    final deviceId = List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    if (!await preferences.setString(preferenceKey, deviceId)) {
+      throw StateError(
+        'No se pudo guardar el identificador de esta instalación.',
+      );
+    }
+    return deviceId;
+  }
+
+  static Future<void> _writeFiadoSaleRecords(
+    List<FiadoSaleRecord> records,
+  ) async {
+    for (var offset = 0; offset < records.length; offset += 450) {
+      final batch = _firestore.batch();
+      final end = (offset + 450).clamp(0, records.length);
+      for (final record in records.sublist(offset, end)) {
+        batch.set(_firestore.collection('salesHistory').doc(record.id), {
+          ...record.data,
+          'date': Timestamp.fromDate(record.data['date']! as DateTime),
+        });
+      }
+      await batch.commit();
+    }
+  }
+
+  static Future<void> _deleteFiadoSaleRecords(
+    List<FiadoSaleRecord> records,
+  ) async {
+    for (var offset = 0; offset < records.length; offset += 450) {
+      final batch = _firestore.batch();
+      final end = (offset + 450).clamp(0, records.length);
+      for (final record in records.sublist(offset, end)) {
+        batch.delete(_firestore.collection('salesHistory').doc(record.id));
+      }
+      await batch.commit();
+    }
   }
 
   static Stream<QuerySnapshot<Map<String, dynamic>>> watchSales() {

@@ -72,7 +72,7 @@ Después genera el APK firmado:
 flutter build apk --release
 ```
 
-La primera release publicada es `1.0.1+2`. La versión actual es `1.0.8+9`. El APK se genera en
+La primera release publicada es `1.0.1+2`. La versión actual es `1.0.9+10`. El APK se genera en
 `build/app/outputs/flutter-apk/app-release.apk`. Antes de instalarlo encima de
 la app debug actual, respalda sus datos y desinstálala: la firma de producción
 es distinta y Android no permite actualizar entre firmas diferentes.
@@ -80,7 +80,9 @@ es distinta y Android no permite actualizar entre firmas diferentes.
 Las releases `v1.0.1` a `v1.0.7` están publicadas; `v1.0.7` incluye la
 recuperación de contraseña mediante enlaces Android, precios con dos decimales,
 el precio mensual de ₡800 y el formato neutro del ticket. `v1.0.8` corrige la
-apertura y validación de enlaces de recuperación en Android. Para futuras versiones, usa una etiqueta superior, adjunta el APK
+apertura y validación de enlaces de recuperación en Android. `v1.0.9` registra
+los pagos de fiados en el historial y retira esos registros al reanudar una cuenta.
+Para futuras versiones, usa una etiqueta superior, adjunta el APK
 con el nombre `POSMOVIL-<versión>.apk` y adjunta también `latest.json`, rellenado con la plantilla
 de `release/latest.json.example`, el SHA-256 real del APK y
 `"published": true`. En futuras versiones incrementa el número después de `+`

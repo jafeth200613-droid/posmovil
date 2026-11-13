@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'currency_format.dart';
 import 'database_helper.dart';
+import 'subscription_service.dart';
 
 class FiadosScreen extends StatefulWidget {
   const FiadosScreen({super.key});
@@ -177,6 +178,127 @@ class _FiadosScreenState extends State<FiadosScreen> {
     }
   }
 
+  Future<void> _setFiadoItemPaid({
+    required Map<String, dynamic> fiado,
+    required Map<String, dynamic> item,
+    required bool paid,
+  }) async {
+    final fiadoId = fiado['id'] as int;
+    final itemId = item['id'] as int;
+    await DatabaseHelper.instance.setFiadoItemPaid(itemId, paid: paid);
+
+    try {
+      if (paid) {
+        await SubscriptionService.recordFiadoSales(
+          fiadoId: fiadoId,
+          clientName: fiado['client_name'].toString(),
+          items: [item],
+        );
+      } else {
+        await SubscriptionService.deleteFiadoSales(
+          fiadoId: fiadoId,
+          items: [item],
+        );
+      }
+    } catch (error) {
+      Object? historyRollbackError;
+      if (!paid) {
+        try {
+          await SubscriptionService.recordFiadoSales(
+            fiadoId: fiadoId,
+            clientName: fiado['client_name'].toString(),
+            items: [item],
+          );
+        } catch (rollbackError) {
+          historyRollbackError = rollbackError;
+        }
+      }
+
+      try {
+        await DatabaseHelper.instance.setFiadoItemPaid(itemId, paid: !paid);
+      } catch (databaseRollbackError) {
+        throw StateError(
+          'Falló la sincronización de la venta ($error) y no se pudo '
+          'restaurar el estado local ($databaseRollbackError).',
+        );
+      }
+      if (historyRollbackError != null) {
+        throw StateError(
+          'Falló la eliminación del historial ($error) y no se pudo '
+          'restaurar la venta en Firestore ($historyRollbackError).',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _setFiadoPaid({
+    required Map<String, dynamic> fiado,
+    required bool paid,
+  }) async {
+    final fiadoId = fiado['id'] as int;
+    final database = DatabaseHelper.instance;
+    final itemsBefore = await database.getFiadoItems(fiadoId);
+    final changedItemsBefore = itemsBefore
+        .where((item) => (item['status'] == 'paid') != paid)
+        .toList();
+
+    await database.setFiadoPaid(fiadoId, paid: paid);
+    var changedItems = changedItemsBefore;
+    if (paid && itemsBefore.isEmpty) {
+      changedItems = (await database.getFiadoItems(fiadoId))
+          .where((item) => item['status'] == 'paid')
+          .toList();
+    }
+    if (changedItems.isEmpty) return;
+
+    try {
+      if (paid) {
+        await SubscriptionService.recordFiadoSales(
+          fiadoId: fiadoId,
+          clientName: fiado['client_name'].toString(),
+          items: changedItems,
+        );
+      } else {
+        await SubscriptionService.deleteFiadoSales(
+          fiadoId: fiadoId,
+          items: changedItems,
+        );
+      }
+    } catch (error) {
+      Object? historyRollbackError;
+      if (!paid) {
+        try {
+          await SubscriptionService.recordFiadoSales(
+            fiadoId: fiadoId,
+            clientName: fiado['client_name'].toString(),
+            items: changedItems,
+          );
+        } catch (rollbackError) {
+          historyRollbackError = rollbackError;
+        }
+      }
+
+      try {
+        for (final item in changedItems) {
+          await database.setFiadoItemPaid(item['id'] as int, paid: !paid);
+        }
+      } catch (databaseRollbackError) {
+        throw StateError(
+          'Falló la sincronización de la cuenta ($error) y no se pudo '
+          'restaurar su estado local ($databaseRollbackError).',
+        );
+      }
+      if (historyRollbackError != null) {
+        throw StateError(
+          'Falló la eliminación del historial ($error) y no se pudo '
+          'restaurar la venta en Firestore ($historyRollbackError).',
+        );
+      }
+      rethrow;
+    }
+  }
+
   Future<void> _mostrarDetalleFiado(Map<String, dynamic> initialFiado) async {
     var fiado = Map<String, dynamic>.from(initialFiado);
     var items = await DatabaseHelper.instance.getFiadoItems(fiado['id'] as int);
@@ -252,11 +374,11 @@ class _FiadosScreenState extends State<FiadosScreen> {
                             trailing: TextButton(
                               onPressed: () async {
                                 try {
-                                  await DatabaseHelper.instance
-                                      .setFiadoItemPaid(
-                                        item['id'] as int,
-                                        paid: !itemPaid,
-                                      );
+                                  await _setFiadoItemPaid(
+                                    fiado: fiado,
+                                    item: item,
+                                    paid: !itemPaid,
+                                  );
                                   await refresh();
                                 } catch (error) {
                                   debugPrint(
@@ -334,10 +456,7 @@ class _FiadosScreenState extends State<FiadosScreen> {
               ElevatedButton(
                 onPressed: () async {
                   try {
-                    await DatabaseHelper.instance.setFiadoPaid(
-                      fiado['id'] as int,
-                      paid: !isPaid,
-                    );
+                    await _setFiadoPaid(fiado: fiado, paid: !isPaid);
                     await refresh();
                   } catch (error) {
                     debugPrint(
@@ -404,10 +523,19 @@ class _FiadosScreenState extends State<FiadosScreen> {
                 );
 
                 if (nuevaDeuda <= 0) {
-                  await DatabaseHelper.instance.setFiadoPaid(
-                    fiado['id'] as int,
-                    paid: true,
-                  );
+                  try {
+                    await _setFiadoPaid(fiado: fiado, paid: true);
+                  } catch (error) {
+                    debugPrint('No se pudo cerrar el fiado: $error');
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('No se pudo registrar la venta: $error'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
