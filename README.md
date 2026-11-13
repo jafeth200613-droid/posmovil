@@ -48,8 +48,14 @@ pueden consultar y modificar sin Internet. Funciones que dependen de terceros
 siguen necesitando conexión: registrar un usuario o iniciar sesión en un
 dispositivo nuevo, recuperar una contraseña por correo, enviar o aprobar pagos
 SINPE, importar CSV (valida duplicados en Firestore) y descargar
-actualizaciones. La aplicación no simula
-una aprobación de pago ni permite saltarse la verificación de suscripción sin
+actualizaciones. La aplicación no simula una aprobación de pago.
+
+La suscripción guarda localmente el plan, el estado, la fecha exacta de
+vencimiento y la última hora observada para la cuenta actual. El acceso se
+revisa al abrir la app, al volver a primer plano y cada 10 segundos; un reloj
+atrasado bloquea el acceso hasta que Firebase confirme el estado desde el
+servidor. Sin caché válida, la app también bloquea el acceso. Esta protección
+offline es básica y no reemplaza la verificación del servidor cuando hay
 conexión.
 
 ## Recuperación de contraseña en Android
@@ -92,8 +98,8 @@ Después genera el APK firmado:
 flutter build apk --release
 ```
 
-La primera release publicada es `1.0.1+2`. La versión actual es
-`1.0.10+11`. El APK se genera en
+La primera release publicada es `1.0.1+2`. La versión del código es
+`1.0.11+12`. El APK se genera en
 `build/app/outputs/flutter-apk/app-release.apk`. Antes de instalarlo encima de
 la app debug actual, respalda sus datos y desinstálala: la firma de producción
 es distinta y Android no permite actualizar entre firmas diferentes.

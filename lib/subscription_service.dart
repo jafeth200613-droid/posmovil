@@ -40,8 +40,101 @@ class SubscriptionService {
   }
 
   static Stream<DocumentSnapshot<Map<String, dynamic>>> watchUser(String uid) {
-    return _firestore.collection('users').doc(uid).snapshots();
+    return _firestore
+        .collection('users')
+        .doc(uid)
+        .snapshots(includeMetadataChanges: true);
   }
+
+  static Future<Map<String, dynamic>?> getCachedUserAccess(String uid) async {
+    final preferences = await SharedPreferences.getInstance();
+    final prefix = _userAccessPreferencePrefix(uid);
+    final status = preferences.getString('${prefix}status');
+    final plan = preferences.getString('${prefix}plan');
+    if (status == null || plan == null) return null;
+
+    final data = <String, dynamic>{'status': status, 'plan': plan};
+    final expiresAt = preferences.getInt('${prefix}expiresAt');
+    if (expiresAt != null) {
+      data['expiresAt'] = Timestamp.fromMillisecondsSinceEpoch(expiresAt);
+    }
+    return data;
+  }
+
+  static Future<DateTime?> getLastKnownUserAccessTime(String uid) async {
+    final preferences = await SharedPreferences.getInstance();
+    final milliseconds = preferences.getInt(
+      '${_userAccessPreferencePrefix(uid)}lastKnownTime',
+    );
+    return milliseconds == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(milliseconds);
+  }
+
+  static Future<void> cacheUserAccess({
+    required String uid,
+    required Map<String, dynamic> data,
+    required DateTime observedAt,
+    required bool serverValidated,
+  }) async {
+    final preferences = await SharedPreferences.getInstance();
+    final prefix = _userAccessPreferencePrefix(uid);
+    final status = data['status'];
+    final plan = data['plan'];
+    if (status is String) {
+      await preferences.setString('${prefix}status', status);
+    } else {
+      await preferences.remove('${prefix}status');
+    }
+    if (plan is String) {
+      await preferences.setString('${prefix}plan', plan);
+    } else {
+      await preferences.remove('${prefix}plan');
+    }
+
+    final expiresAt = data['expiresAt'];
+    final expiration = switch (expiresAt) {
+      Timestamp value => value.millisecondsSinceEpoch,
+      DateTime value => value.millisecondsSinceEpoch,
+      _ => null,
+    };
+    if (expiration == null) {
+      await preferences.remove('${prefix}expiresAt');
+    } else {
+      await preferences.setInt('${prefix}expiresAt', expiration);
+    }
+
+    if (serverValidated) {
+      await preferences.setInt(
+        '${prefix}lastKnownTime',
+        observedAt.millisecondsSinceEpoch,
+      );
+    }
+  }
+
+  static Future<void> clearCachedUserAccess(String uid) async {
+    final preferences = await SharedPreferences.getInstance();
+    final prefix = _userAccessPreferencePrefix(uid);
+    await preferences.remove('${prefix}status');
+    await preferences.remove('${prefix}plan');
+    await preferences.remove('${prefix}expiresAt');
+  }
+
+  static Future<void> recordLastKnownUserAccessTime(
+    String uid,
+    DateTime observedAt,
+  ) async {
+    final preferences = await SharedPreferences.getInstance();
+    final key = '${_userAccessPreferencePrefix(uid)}lastKnownTime';
+    final previous = preferences.getInt(key);
+    if (previous != null && observedAt.millisecondsSinceEpoch < previous) {
+      return;
+    }
+    await preferences.setInt(key, observedAt.millisecondsSinceEpoch);
+  }
+
+  static String _userAccessPreferencePrefix(String uid) =>
+      'subscription_access_${uid}_';
 
   static Future<void> submitSinpeRequest({
     required String uid,
