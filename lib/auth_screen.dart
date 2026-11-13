@@ -69,7 +69,6 @@ class _AuthScreenState extends State<AuthScreen> {
           url: 'https://posmovil-app.firebaseapp.com',
           handleCodeInApp: true,
           androidPackageName: 'com.jafeth.posmovil',
-          iOSBundleId: 'com.example.posInventoryApp',
         ),
       );
       if (!mounted) return;

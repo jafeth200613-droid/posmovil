@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.jafeth.posmovil",
+      "sha256_cert_fingerprints": [
+        "18:CC:79:87:FD:1F:04:6F:75:D4:CF:4B:9B:05:5F:61:48:CD:5C:84:60:3E:59:25:AC:9D:90:0C:0F:DC:76:1A"
+      ]
+    }
+  }
+]

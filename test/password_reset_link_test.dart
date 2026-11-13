@@ -21,6 +21,19 @@ void main() {
       expect(extractPasswordResetCode(link), 'direct-code');
     });
 
+    test('extracts a code nested in a continue URL', () {
+      final actionLink = Uri.parse(
+        'https://posmovil-app.firebaseapp.com/__/auth/action'
+        '?mode=resetPassword&oobCode=nested-code',
+      );
+      final link = Uri.parse(
+        'https://posmovil-app.firebaseapp.com/__/auth/links'
+        '?continueUrl=${Uri.encodeComponent(actionLink.toString())}',
+      );
+
+      expect(extractPasswordResetCode(link), 'nested-code');
+    });
+
     test('ignores links for another host or another action', () {
       expect(
         extractPasswordResetCode(
@@ -35,6 +48,15 @@ void main() {
           Uri.parse(
             'https://posmovil-app.firebaseapp.com/__/auth/links'
             '?mode=verifyEmail&oobCode=abc',
+          ),
+        ),
+        isNull,
+      );
+      expect(
+        extractPasswordResetCode(
+          Uri.parse(
+            'https://posmovil-app.firebaseapp.com/other'
+            '?mode=resetPassword&oobCode=abc',
           ),
         ),
         isNull,

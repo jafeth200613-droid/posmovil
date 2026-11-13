@@ -49,6 +49,14 @@ class _PasswordResetLinkScreenState extends State<PasswordResetLinkScreen> {
         _errorMessage = _friendlyAuthError(error);
         _isLoading = false;
       });
+    } catch (error, stackTrace) {
+      debugPrint('No se pudo validar el enlace de recuperación: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'No se pudo validar el enlace. Solicita un correo nuevo y abre el enlace más reciente desde tu teléfono.';
+        _isLoading = false;
+      });
     }
   }
 
@@ -85,6 +93,18 @@ class _PasswordResetLinkScreenState extends State<PasswordResetLinkScreen> {
           backgroundColor: Colors.red,
         ),
       );
+    } catch (error, stackTrace) {
+      debugPrint('No se pudo guardar la nueva contraseña: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No se pudo guardar la contraseña. Solicita un enlace nuevo e inténtalo otra vez.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -95,12 +115,16 @@ class _PasswordResetLinkScreenState extends State<PasswordResetLinkScreen> {
       case 'expired-action-code':
       case 'invalid-action-code':
         return 'El enlace venció o ya fue utilizado. Solicita otro correo.';
+      case 'operation-not-allowed':
+        return 'Firebase no permite esta operación. Revisa la configuración de recuperación de contraseña.';
+      case 'invalid-credential':
+        return 'El enlace no es válido. Solicita otro correo e inténtalo de nuevo.';
       case 'weak-password':
         return 'La contraseña es demasiado débil.';
       case 'network-request-failed':
         return 'Revisa tu conexión a Internet e inténtalo de nuevo.';
       default:
-        return error.message ?? 'No se pudo validar el enlace.';
+        return 'No se pudo validar el enlace. Solicita un correo nuevo y abre el enlace más reciente desde tu teléfono.';
     }
   }
 

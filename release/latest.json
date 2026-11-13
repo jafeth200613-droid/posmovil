@@ -1,9 +1,9 @@
 {
   "published": true,
   "packageName": "com.jafeth.posmovil",
-  "version": "1.0.7",
-  "buildNumber": 8,
-  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.7/POSMOVIL-1.0.7.apk",
-  "sha256": "d7ee47438726bff94b76dfd56e4906f5c313c828b717646f0cf37bc849c789f2",
-  "releaseNotes": "Mejora la recuperacion de contrasena en Android, muestra montos con dos decimales, actualiza el precio mensual a ₡800 y aplica el nuevo formato de ticket."
+  "version": "1.0.8",
+  "buildNumber": 9,
+  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.8/POSMOVIL-1.0.8.apk",
+  "sha256": "7dfc3ce9902710100ed95b68ba2ff8a696438febd43d7bba4c5c71a6ce3d7c0b",
+  "releaseNotes": "Corrige la apertura y validacion de enlaces de recuperacion de contrasena en Android."
 }

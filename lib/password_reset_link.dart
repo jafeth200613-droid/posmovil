@@ -1,15 +1,14 @@
 const _firebaseAuthLinkHost = 'posmovil-app.firebaseapp.com';
+const _firebaseAuthLinkPaths = {'/__/auth/links', '/__/auth/action'};
 
 String? extractPasswordResetCode(Uri incomingLink) {
-  if (incomingLink.scheme != 'https' ||
-      incomingLink.host != _firebaseAuthLinkHost ||
-      incomingLink.path != '/__/auth/links') {
+  if (!_isFirebaseAuthLink(incomingLink)) {
     return null;
   }
 
   var currentLink = incomingLink;
-  for (var depth = 0; depth < 4; depth++) {
-    if (currentLink.host != _firebaseAuthLinkHost) return null;
+  for (var depth = 0; depth < 5; depth++) {
+    if (!_isFirebaseAuthLink(currentLink)) return null;
 
     final mode = currentLink.queryParameters['mode'];
     final code = currentLink.queryParameters['oobCode'];
@@ -19,7 +18,8 @@ String? extractPasswordResetCode(Uri incomingLink) {
 
     final nestedLink =
         currentLink.queryParameters['link'] ??
-        currentLink.queryParameters['deep_link_id'];
+        currentLink.queryParameters['deep_link_id'] ??
+        currentLink.queryParameters['continueUrl'];
     if (nestedLink == null) return null;
 
     try {
@@ -30,3 +30,8 @@ String? extractPasswordResetCode(Uri incomingLink) {
   }
   return null;
 }
+
+bool _isFirebaseAuthLink(Uri link) =>
+    link.scheme == 'https' &&
+    link.host == _firebaseAuthLinkHost &&
+    _firebaseAuthLinkPaths.contains(link.path);
