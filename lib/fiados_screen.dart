@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'currency_format.dart';
@@ -183,53 +185,10 @@ class _FiadosScreenState extends State<FiadosScreen> {
     required Map<String, dynamic> item,
     required bool paid,
   }) async {
-    final fiadoId = fiado['id'] as int;
     final itemId = item['id'] as int;
     await DatabaseHelper.instance.setFiadoItemPaid(itemId, paid: paid);
 
-    try {
-      if (paid) {
-        await SubscriptionService.recordFiadoSales(
-          fiadoId: fiadoId,
-          clientName: fiado['client_name'].toString(),
-          items: [item],
-        );
-      } else {
-        await SubscriptionService.deleteFiadoSales(
-          fiadoId: fiadoId,
-          items: [item],
-        );
-      }
-    } catch (error) {
-      Object? historyRollbackError;
-      if (!paid) {
-        try {
-          await SubscriptionService.recordFiadoSales(
-            fiadoId: fiadoId,
-            clientName: fiado['client_name'].toString(),
-            items: [item],
-          );
-        } catch (rollbackError) {
-          historyRollbackError = rollbackError;
-        }
-      }
-
-      try {
-        await DatabaseHelper.instance.setFiadoItemPaid(itemId, paid: !paid);
-      } catch (databaseRollbackError) {
-        throw StateError(
-          'Falló la sincronización de la venta ($error) y no se pudo '
-          'restaurar el estado local ($databaseRollbackError).',
-        );
-      }
-      if (historyRollbackError != null) {
-        throw StateError(
-          'Falló la eliminación del historial ($error) y no se pudo '
-          'restaurar la venta en Firestore ($historyRollbackError).',
-        );
-      }
-      rethrow;
-    }
+    unawaited(_syncFiadoSales(fiado: fiado, items: [item], paid: paid));
   }
 
   Future<void> _setFiadoPaid({
@@ -252,56 +211,48 @@ class _FiadosScreenState extends State<FiadosScreen> {
     }
     if (changedItems.isEmpty) return;
 
+    unawaited(_syncFiadoSales(fiado: fiado, items: changedItems, paid: paid));
+  }
+
+  Future<void> _syncFiadoSales({
+    required Map<String, dynamic> fiado,
+    required List<Map<String, dynamic>> items,
+    required bool paid,
+  }) async {
     try {
       if (paid) {
         await SubscriptionService.recordFiadoSales(
-          fiadoId: fiadoId,
+          fiadoId: fiado['id'] as int,
           clientName: fiado['client_name'].toString(),
-          items: changedItems,
+          items: items,
         );
       } else {
         await SubscriptionService.deleteFiadoSales(
-          fiadoId: fiadoId,
-          items: changedItems,
+          fiadoId: fiado['id'] as int,
+          items: items,
         );
       }
-    } catch (error) {
-      Object? historyRollbackError;
-      if (!paid) {
-        try {
-          await SubscriptionService.recordFiadoSales(
-            fiadoId: fiadoId,
-            clientName: fiado['client_name'].toString(),
-            items: changedItems,
-          );
-        } catch (rollbackError) {
-          historyRollbackError = rollbackError;
-        }
-      }
-
-      try {
-        for (final item in changedItems) {
-          await database.setFiadoItemPaid(item['id'] as int, paid: !paid);
-        }
-      } catch (databaseRollbackError) {
-        throw StateError(
-          'Falló la sincronización de la cuenta ($error) y no se pudo '
-          'restaurar su estado local ($databaseRollbackError).',
-        );
-      }
-      if (historyRollbackError != null) {
-        throw StateError(
-          'Falló la eliminación del historial ($error) y no se pudo '
-          'restaurar la venta en Firestore ($historyRollbackError).',
-        );
-      }
-      rethrow;
+    } catch (error, stackTrace) {
+      debugPrint('No se pudo sincronizar el historial del fiado: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'El cambio quedó guardado en este dispositivo, pero no se pudo '
+            'sincronizar el historial: $error',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
     }
   }
 
   Future<void> _mostrarDetalleFiado(Map<String, dynamic> initialFiado) async {
     var fiado = Map<String, dynamic>.from(initialFiado);
     var items = await DatabaseHelper.instance.getFiadoItems(fiado['id'] as int);
+    final updatingItemIds = <int>{};
+    var updatingFiado = false;
     var editandoNombre = false;
     var nombreEditado = fiado['client_name'].toString();
     if (!mounted) return;
@@ -364,6 +315,9 @@ class _FiadosScreenState extends State<FiadosScreen> {
                         itemBuilder: (context, index) {
                           final item = items[index];
                           final itemPaid = item['status'] == 'paid';
+                          final itemId = item['id'] as int;
+                          final isUpdating =
+                              updatingFiado || updatingItemIds.isNotEmpty;
                           return ListTile(
                             contentPadding: EdgeInsets.zero,
                             title: Text(item['product_name'].toString()),
@@ -372,30 +326,51 @@ class _FiadosScreenState extends State<FiadosScreen> {
                               ' · ${itemPaid ? 'Pagado' : 'Pendiente'}',
                             ),
                             trailing: TextButton(
-                              onPressed: () async {
-                                try {
-                                  await _setFiadoItemPaid(
-                                    fiado: fiado,
-                                    item: item,
-                                    paid: !itemPaid,
-                                  );
-                                  await refresh();
-                                } catch (error) {
-                                  debugPrint(
-                                    'No se pudo actualizar producto fiado: $error',
-                                  );
-                                  if (!dialogContext.mounted) return;
-                                  ScaffoldMessenger.of(dialogContext)
-                                      .showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            'No se pudo actualizar: $error',
-                                          ),
-                                        ),
+                              onPressed: isUpdating
+                                  ? null
+                                  : () async {
+                                      setDialogState(
+                                        () => updatingItemIds.add(itemId),
                                       );
-                                }
-                              },
-                              child: Text(itemPaid ? 'Reanudar' : 'Pagado'),
+                                      try {
+                                        await _setFiadoItemPaid(
+                                          fiado: fiado,
+                                          item: item,
+                                          paid: !itemPaid,
+                                        );
+                                        await refresh();
+                                      } catch (error) {
+                                        debugPrint(
+                                          'No se pudo actualizar producto fiado: $error',
+                                        );
+                                        if (!dialogContext.mounted) return;
+                                        ScaffoldMessenger.of(
+                                          dialogContext,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'No se pudo actualizar: $error',
+                                            ),
+                                          ),
+                                        );
+                                      } finally {
+                                        if (dialogContext.mounted) {
+                                          setDialogState(
+                                            () =>
+                                                updatingItemIds.remove(itemId),
+                                          );
+                                        }
+                                      }
+                                    },
+                              child: updatingItemIds.contains(itemId)
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Text(itemPaid ? 'Reanudar' : 'Pagado'),
                             ),
                           );
                         },
@@ -454,21 +429,36 @@ class _FiadosScreenState extends State<FiadosScreen> {
                 child: const Text('Cerrar'),
               ),
               ElevatedButton(
-                onPressed: () async {
-                  try {
-                    await _setFiadoPaid(fiado: fiado, paid: !isPaid);
-                    await refresh();
-                  } catch (error) {
-                    debugPrint(
-                      'No se pudo cambiar el estado del fiado: $error',
-                    );
-                    if (!dialogContext.mounted) return;
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      SnackBar(content: Text('No se pudo actualizar: $error')),
-                    );
-                  }
-                },
-                child: Text(isPaid ? 'Reanudar cuenta' : 'Marcar pagada'),
+                onPressed: updatingFiado || updatingItemIds.isNotEmpty
+                    ? null
+                    : () async {
+                        setDialogState(() => updatingFiado = true);
+                        try {
+                          await _setFiadoPaid(fiado: fiado, paid: !isPaid);
+                          await refresh();
+                        } catch (error) {
+                          debugPrint(
+                            'No se pudo cambiar el estado del fiado: $error',
+                          );
+                          if (!dialogContext.mounted) return;
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            SnackBar(
+                              content: Text('No se pudo actualizar: $error'),
+                            ),
+                          );
+                        } finally {
+                          if (dialogContext.mounted) {
+                            setDialogState(() => updatingFiado = false);
+                          }
+                        }
+                      },
+                child: updatingFiado
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(isPaid ? 'Reanudar cuenta' : 'Marcar pagada'),
               ),
             ],
           );
@@ -479,97 +469,122 @@ class _FiadosScreenState extends State<FiadosScreen> {
 
   void _registrarAbono(Map<String, dynamic> fiado) {
     final abonoController = TextEditingController();
+    var isApplyingAbono = false;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Registrar Abono: ${fiado['client_name']}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Deuda actual: ₡${formatMoney(fiado['amount'] as num)}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: abonoController,
-              keyboardType: TextInputType.number,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Monto del Abono (₡)',
-                border: OutlineInputBorder(),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Registrar Abono: ${fiado['client_name']}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Deuda actual: ₡${formatMoney(fiado['amount'] as num)}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: abonoController,
+                keyboardType: TextInputType.number,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Monto del Abono (₡)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isApplyingAbono
+                  ? null
+                  : () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: isApplyingAbono
+                  ? null
+                  : () async {
+                      final abono = double.tryParse(abonoController.text);
+                      if (abono == null || !abono.isFinite || abono <= 0) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('Escribe un monto válido.'),
+                          ),
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => isApplyingAbono = true);
+                      try {
+                        final deudaActual = (fiado['amount'] as num).toDouble();
+                        final nuevaDeuda = double.parse(
+                          (deudaActual - abono).toStringAsFixed(2),
+                        );
+                        if (nuevaDeuda <= 0) {
+                          await _setFiadoPaid(fiado: fiado, paid: true);
+                        } else {
+                          await DatabaseHelper.instance.updateFiado({
+                            'id': fiado['id'],
+                            'client_name': fiado['client_name'],
+                            'amount': nuevaDeuda,
+                            'date': fiado['date'],
+                          });
+                        }
+
+                        if (!dialogContext.mounted) return;
+                        Navigator.pop(dialogContext);
+                        await _cargarFiados();
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(this.context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              nuevaDeuda <= 0
+                                  ? 'La cuenta quedó pagada; la venta aparecerá en '
+                                        'Reportes al sincronizar.'
+                                  : 'Abono registrado. Nuevo saldo: '
+                                        '₡${formatMoney(nuevaDeuda)}',
+                            ),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } catch (error) {
+                        debugPrint('No se pudo registrar el abono: $error');
+                        if (!mounted) return;
+                        if (dialogContext.mounted) {
+                          setDialogState(() => isApplyingAbono = false);
+                        }
+                        ScaffoldMessenger.of(this.context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'No se pudo registrar el abono: $error',
+                            ),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    },
+              child: isApplyingAbono
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Aplicar Abono'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () async {
-              double? abono = double.tryParse(abonoController.text);
-              if (abono != null && abono > 0) {
-                double deudaActual = (fiado['amount'] as num).toDouble();
-                double nuevaDeuda = double.parse(
-                  (deudaActual - abono).toStringAsFixed(2),
-                );
-
-                if (nuevaDeuda <= 0) {
-                  try {
-                    await _setFiadoPaid(fiado: fiado, paid: true);
-                  } catch (error) {
-                    debugPrint('No se pudo cerrar el fiado: $error');
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('No se pudo registrar la venta: $error'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Cuenta pagada y enviada a Reportes.'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                } else {
-                  await DatabaseHelper.instance.updateFiado({
-                    'id': fiado['id'],
-                    'client_name': fiado['client_name'],
-                    'amount': nuevaDeuda,
-                    'date': fiado['date'],
-                  });
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Abono registrado. Nuevo saldo: ₡${formatMoney(nuevaDeuda)}',
-                      ),
-                    ),
-                  );
-                }
-
-                if (!context.mounted) return;
-                Navigator.pop(context);
-                _cargarFiados();
-              }
-            },
-            child: const Text('Aplicar Abono'),
-          ),
-        ],
       ),
-    );
+    ).then((_) => abonoController.dispose());
   }
 
   @override

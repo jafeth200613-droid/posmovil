@@ -32,6 +32,15 @@ Publica ambos archivos como assets de la release de GitHub y nombra el manifiest
 exactamente `latest.json`. Si todavía no hay una release, el botón indicará que
 no hay actualizaciones disponibles.
 
+## Cobros y Fiados sin conexión
+
+El cobro guarda en una sola transacción local el inventario actualizado y todas
+las líneas de la venta antes de vaciar el carrito. Los cambios de Fiados también
+se guardan localmente primero, por lo que la interfaz no espera a Firestore para
+mostrar el resultado. Firestore conserva las escrituras pendientes y las
+sincroniza al volver la conexión; Reportes e Historial en la nube pueden tardar
+hasta entonces en reflejar los cambios.
+
 ## Recuperación de contraseña en Android
 
 Los enlaces de Firebase usan el dominio `posmovil-app.firebaseapp.com` y la ruta

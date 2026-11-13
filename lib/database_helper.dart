@@ -222,6 +222,65 @@ class DatabaseHelper {
     return await db.insert('sales', row);
   }
 
+  Future<void> completeSale({
+    required List<Map<String, dynamic>> items,
+    required String date,
+  }) async {
+    if (items.isEmpty) throw ArgumentError('El carrito está vacío.');
+
+    final db = await instance.database;
+    await db.transaction((txn) async {
+      for (final item in items) {
+        final productId = item['id'];
+        final rawQuantity = item['quantity'];
+        final rawPrice = item['price'];
+        final productName = item['name']?.toString().trim() ?? '';
+        if (productId is! int ||
+            rawQuantity is! num ||
+            rawPrice is! num ||
+            productName.isEmpty) {
+          throw ArgumentError('El detalle de un producto no es válido.');
+        }
+
+        final quantity = rawQuantity.toInt();
+        final price = rawPrice.toDouble();
+        if (quantity <= 0 || !price.isFinite || price < 0) {
+          throw ArgumentError('Hay una cantidad o precio inválido.');
+        }
+
+        final products = await txn.query(
+          'products',
+          columns: ['stock'],
+          where: 'id = ?',
+          whereArgs: [productId],
+          limit: 1,
+        );
+        if (products.isEmpty) {
+          throw StateError('No se encontró el producto $productName.');
+        }
+
+        final stock = (products.first['stock'] as num).toInt();
+        if (quantity > stock) {
+          throw StateError('Stock insuficiente para $productName.');
+        }
+        await txn.update(
+          'products',
+          {'stock': stock - quantity},
+          where: 'id = ?',
+          whereArgs: [productId],
+        );
+
+        for (var unitIndex = 0; unitIndex < quantity; unitIndex++) {
+          await txn.insert('sales', {
+            'product_name': productName,
+            'price': price,
+            'date': date,
+          });
+        }
+      }
+    });
+  }
+
   Future<List<Map<String, dynamic>>> getSales() async {
     final db = await instance.database;
     return await db.query('sales', orderBy: 'id DESC');

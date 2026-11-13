@@ -73,6 +73,56 @@ class SubscriptionService {
     });
   }
 
+  static Future<void> recordSales({
+    required String uid,
+    required String email,
+    required List<Map<String, dynamic>> items,
+    required DateTime date,
+  }) async {
+    if (items.isEmpty) {
+      throw ArgumentError('No hay productos para registrar en el historial.');
+    }
+
+    final normalizedEmail = email.toLowerCase();
+    for (final item in items) {
+      final quantity = item['quantity'];
+      final price = item['price'];
+      final productName = item['name']?.toString().trim() ?? '';
+      if (quantity is! int ||
+          quantity <= 0 ||
+          price is! num ||
+          !price.toDouble().isFinite ||
+          price < 0 ||
+          productName.isEmpty) {
+        throw ArgumentError('El detalle de una venta no es válido.');
+      }
+    }
+
+    var batch = _firestore.batch();
+    var pendingWrites = 0;
+    for (final item in items) {
+      final quantity = item['quantity'] as int;
+      for (var unitIndex = 0; unitIndex < quantity; unitIndex++) {
+        batch.set(_firestore.collection('salesHistory').doc(), {
+          'uid': uid,
+          'email': normalizedEmail,
+          'productName': item['name'].toString().trim(),
+          'price': item['price'],
+          'date': Timestamp.fromDate(date),
+        });
+        pendingWrites++;
+        if (pendingWrites == 450) {
+          await batch.commit();
+          batch = _firestore.batch();
+          pendingWrites = 0;
+        }
+      }
+    }
+    if (pendingWrites > 0) {
+      await batch.commit();
+    }
+  }
+
   static Future<void> recordFiadoSales({
     required int fiadoId,
     required String clientName,

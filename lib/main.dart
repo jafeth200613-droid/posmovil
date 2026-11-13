@@ -1,10 +1,11 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import 'add_product_screen.dart';
 import 'admin_screen.dart';
@@ -28,6 +29,9 @@ import 'thermal_printers_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+  );
   runApp(const MyApp());
 }
 
@@ -490,6 +494,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
   List<Map<String, dynamic>> _productosFiltrados = [];
   final List<Map<String, dynamic>> _cart = [];
   final TextEditingController _searchController = TextEditingController();
+  bool _isProcessingSale = false;
 
   String _categoriaSeleccionada = 'Todos';
   final List<String> _categoriasFiltro = [
@@ -525,6 +530,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
 
   Future<void> _cargarProductos() async {
     final data = await DatabaseHelper.instance.getProducts();
+    if (!mounted) return;
     setState(() {
       _productos = data;
       _filtrarProductos();
@@ -546,6 +552,8 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
   }
 
   void _agregarAlCarrito(Map<String, dynamic> producto) {
+    if (_isProcessingSale) return;
+
     int stockDisponible = producto['stock'];
     int enCarrito = 0;
     for (var item in _cart) {
@@ -582,6 +590,8 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
   }
 
   void _quitarDelCarrito(int index) {
+    if (_isProcessingSale) return;
+
     setState(() {
       if (_cart[index]['quantity'] > 1) {
         _cart[index]['quantity'] -= 1;
@@ -630,35 +640,82 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
     }
   }
 
-  void _procesarVenta({bool imprimirTicket = false}) async {
-    if (_cart.isEmpty) return;
+  Future<void> _procesarVenta({bool imprimirTicket = false}) async {
+    if (_cart.isEmpty || _isProcessingSale) return;
+
+    setState(() => _isProcessingSale = true);
 
     final receiptItems = _cart
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
     final receiptDate = DateTime.now();
 
-    for (var item in _cart) {
-      int nuevoStock = item['stock'] - item['quantity'];
-      await DatabaseHelper.instance.updateProductStock(item['id'], nuevoStock);
+    try {
+      await DatabaseHelper.instance.completeSale(
+        items: receiptItems,
+        date: receiptDate.toString().substring(0, 16),
+      );
+    } catch (error) {
+      debugPrint('No se pudo guardar la venta localmente: $error');
+      if (!mounted) return;
+      setState(() => _isProcessingSale = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo completar la venta: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
-      for (int i = 0; i < item['quantity']; i++) {
-        await DatabaseHelper.instance.insertSale({
-          'product_name': item['name'],
-          'price': item['price'],
-          'date': DateTime.now().toString().substring(0, 16),
-        });
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          await SubscriptionService.recordSale(
-            uid: user.uid,
-            email: user.email ?? '',
-            productName: item['name'],
-            price: item['price'],
-            date: DateTime.now(),
-          );
-        }
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      unawaited(
+        _syncSaleHistory(
+          uid: user.uid,
+          email: user.email ?? '',
+          items: receiptItems,
+          date: receiptDate,
+        ),
+      );
+    } else {
+      debugPrint(
+        'La venta quedó guardada localmente, sin usuario para sincronizar.',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'La venta quedó guardada en este dispositivo, pero no se pudo '
+              'sincronizar porque no hay una sesión activa.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
+    }
+
+    if (mounted) {
+      setState(() {
+        _cart.clear();
+        _isProcessingSale = false;
+      });
+      unawaited(
+        _cargarProductos().catchError((Object error, StackTrace stackTrace) {
+          debugPrint('No se pudo actualizar el inventario del POS: $error');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'La venta se guardó, pero no se pudo actualizar el '
+                  'inventario en pantalla.',
+                ),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }),
+      );
     }
 
     String? printError;
@@ -688,8 +745,8 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
           items: receiptItems,
           total: receiptItems.fold<double>(
             0,
-            (sum, item) =>
-                sum + (item['price'] as num) * (item['quantity'] as num),
+            (subtotal, item) =>
+                subtotal + (item['price'] as num) * (item['quantity'] as num),
           ),
           date: receiptDate,
         );
@@ -712,11 +769,35 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
         backgroundColor: printError == null ? Colors.green : Colors.orange,
       ),
     );
+  }
 
-    setState(() {
-      _cart.clear();
-    });
-    _cargarProductos();
+  Future<void> _syncSaleHistory({
+    required String uid,
+    required String email,
+    required List<Map<String, dynamic>> items,
+    required DateTime date,
+  }) async {
+    try {
+      await SubscriptionService.recordSales(
+        uid: uid,
+        email: email,
+        items: items,
+        date: date,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('No se pudo sincronizar el historial de ventas: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'La venta quedó guardada en este dispositivo, pero no se pudo '
+            'sincronizar el historial: $error',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
   }
 
   Future<void> _enviarTicketWhatsApp() async {
@@ -857,6 +938,8 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
   }
 
   Future<void> _mostrarCarritoModal() async {
+    if (_isProcessingSale) return;
+
     final action = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -1068,7 +1151,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
   Widget build(BuildContext context) {
     int totalItemsCarrito = _cart.fold(
       0,
-      (sum, item) => sum + (item['quantity'] as int),
+      (itemCount, item) => itemCount + (item['quantity'] as int),
     );
     double totalMontoCarrito = _calcularTotalCarrito();
 
