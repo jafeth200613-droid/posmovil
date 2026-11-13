@@ -1,7 +1,8 @@
 import 'dart:math' as math;
 
-import 'package:fl_chart/fl_chart.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -21,6 +22,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   SalesReportPeriod _period = SalesReportPeriod.day;
   bool _loading = true;
   String? _loadError;
+  bool _isShowingLocalSales = false;
   final TextEditingController _searchController = TextEditingController();
   DateTime _rangeStart = DateTime(
     DateTime.now().year,
@@ -61,18 +63,51 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       final sales = await SubscriptionService.getSales(
         start: _rangeStart,
         end: _rangeEnd,
+        source: Source.server,
       );
       if (!mounted) return;
       setState(() {
         _sales = sales;
+        _isShowingLocalSales = false;
         _loading = false;
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _loadError = error.toString();
-        _loading = false;
-      });
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final isNetworkError =
+          error is FirebaseException &&
+          const {
+            'unavailable',
+            'deadline-exceeded',
+            'network-request-failed',
+          }.contains(error.code);
+      if (uid == null || !isNetworkError) {
+        setState(() {
+          _loadError = error.toString();
+          _loading = false;
+        });
+        return;
+      }
+
+      try {
+        final localSales = await DatabaseHelper.instance.getLocalSales(
+          uid: uid,
+          start: _rangeStart,
+          end: _rangeEnd,
+        );
+        if (!mounted) return;
+        setState(() {
+          _sales = localSales;
+          _isShowingLocalSales = true;
+          _loading = false;
+        });
+      } catch (localError) {
+        if (!mounted) return;
+        setState(() {
+          _loadError = 'Red: $error. Datos locales: $localError';
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -181,8 +216,20 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               foregroundColor: Colors.white,
             ),
             onPressed: () async {
-              await SubscriptionService.deleteAllSales();
-              await DatabaseHelper.instance.deleteAllSales();
+              if (_isShowingLocalSales) return;
+              try {
+                await SubscriptionService.deleteAllSales();
+                await DatabaseHelper.instance.deleteAllSales();
+              } catch (error) {
+                if (!dialogContext.mounted) return;
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  SnackBar(
+                    content: Text('No se pudo borrar el historial: $error'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
               if (!dialogContext.mounted) return;
               Navigator.pop(dialogContext);
               await _cargarVentas();
@@ -195,6 +242,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
 
   Future<void> _eliminarVenta(Map<String, dynamic> sale) async {
+    if (sale['isLocalOnly'] == true) return;
     final firestoreId = sale['firestoreId']?.toString();
     if (firestoreId == null) return;
     await SubscriptionService.deleteSale(firestoreId);
@@ -448,6 +496,29 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final date = rawDate is Timestamp
         ? DateFormat('dd/MM/yyyy HH:mm').format(rawDate.toDate())
         : rawDate?.toString() ?? '';
+    final tile = ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const CircleAvatar(
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+        child: Icon(Icons.receipt),
+      ),
+      title: Text(
+        (sale['productName'] ?? sale['product_name'])?.toString() ??
+            'Producto sin nombre',
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+      subtitle: Text('Fecha: $date'),
+      trailing: Text(
+        _formatCurrency((sale['price'] as num?) ?? 0),
+        style: const TextStyle(
+          fontWeight: FontWeight.bold,
+          color: Colors.indigo,
+          fontSize: 16,
+        ),
+      ),
+    );
+    if (sale['isLocalOnly'] == true) return tile;
     return Dismissible(
       key: Key(sale['firestoreId'].toString()),
       direction: DismissDirection.endToStart,
@@ -458,28 +529,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         child: const Icon(Icons.delete, color: Colors.white),
       ),
       onDismissed: (_) => _eliminarVenta(sale),
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: const CircleAvatar(
-          backgroundColor: Colors.indigo,
-          foregroundColor: Colors.white,
-          child: Icon(Icons.receipt),
-        ),
-        title: Text(
-          (sale['productName'] ?? sale['product_name'])?.toString() ??
-              'Producto sin nombre',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text('Fecha: $date'),
-        trailing: Text(
-          _formatCurrency((sale['price'] as num?) ?? 0),
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.indigo,
-            fontSize: 16,
-          ),
-        ),
-      ),
+      child: tile,
     );
   }
 
@@ -501,7 +551,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           ),
           IconButton(
             tooltip: 'Borrar historial',
-            onPressed: _confirmarBorrarHistorial,
+            onPressed: _isShowingLocalSales ? null : _confirmarBorrarHistorial,
             icon: const Icon(Icons.delete_sweep),
           ),
         ],
@@ -512,6 +562,18 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           ? Center(child: Text('No se pudieron cargar las ventas: $_loadError'))
           : CustomScrollView(
               slivers: [
+                if (_isShowingLocalSales)
+                  const SliverPadding(
+                    padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: Text(
+                        'Sin conexión: mostrando las ventas locales de esta '
+                        'cuenta. El historial completo se actualizará al '
+                        'reconectar.',
+                        style: TextStyle(color: Colors.deepOrange),
+                      ),
+                    ),
+                  ),
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                   sliver: SliverToBoxAdapter(

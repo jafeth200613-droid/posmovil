@@ -17,15 +17,68 @@ class SubscriptionGate extends StatefulWidget {
 
 class _SubscriptionGateState extends State<SubscriptionGate> {
   bool _ensuringDocument = false;
+  String? _ensureError;
+  String? _ensuredUserId;
 
   Future<void> _ensureUser(User user) async {
-    if (_ensuringDocument) return;
+    if (_ensuringDocument || _ensuredUserId == user.uid) return;
     _ensuringDocument = true;
     try {
       await SubscriptionService.ensureUserDocument(user);
+      _ensuredUserId = user.uid;
+      _ensureError = null;
+    } catch (error) {
+      _ensureError = error.toString();
     } finally {
       _ensuringDocument = false;
+      if (mounted) setState(() {});
     }
+  }
+
+  void _retryAccessCheck() {
+    setState(() {
+      _ensureError = null;
+      _ensuredUserId = null;
+    });
+  }
+
+  Widget _offlineAccessMessage(String message) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off, size: 56, color: Colors.indigo),
+              const SizedBox(height: 16),
+              const Text(
+                'No se pudo verificar el acceso',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Conéctate a Internet e inténtalo de nuevo. La app no puede '
+                'confirmar el estado de la suscripción sin conexión.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                style: const TextStyle(color: Colors.black54, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: _retryAccessCheck,
+                child: const Text('Reintentar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   bool _hasActiveAccess(Map<String, dynamic>? data) {
@@ -51,6 +104,9 @@ class _SubscriptionGateState extends State<SubscriptionGate> {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: SubscriptionService.watchUser(user.uid),
       builder: (context, snapshot) {
+        if (snapshot.hasError && !snapshot.hasData) {
+          return _offlineAccessMessage(snapshot.error.toString());
+        }
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
           return const Scaffold(
@@ -60,6 +116,9 @@ class _SubscriptionGateState extends State<SubscriptionGate> {
 
         final data = snapshot.data?.data();
         if (!snapshot.hasData || data == null) {
+          if (_ensureError != null) {
+            return _offlineAccessMessage(_ensureError!);
+          }
           _ensureUser(user);
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),

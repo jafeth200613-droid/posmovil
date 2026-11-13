@@ -39,7 +39,18 @@ las líneas de la venta antes de vaciar el carrito. Los cambios de Fiados tambi�
 se guardan localmente primero, por lo que la interfaz no espera a Firestore para
 mostrar el resultado. Firestore conserva las escrituras pendientes y las
 sincroniza al volver la conexión; Reportes e Historial en la nube pueden tardar
-hasta entonces en reflejar los cambios.
+hasta entonces en reflejar los cambios. Si no se puede consultar el servidor,
+Reportes muestra las ventas locales asociadas a la cuenta actual y protege el
+historial local contra borrados que no podrían sincronizarse.
+
+El inventario, las ventas y las cuentas fiadas guardadas en el dispositivo se
+pueden consultar y modificar sin Internet. Funciones que dependen de terceros
+siguen necesitando conexión: registrar un usuario o iniciar sesión en un
+dispositivo nuevo, recuperar una contraseña por correo, enviar o aprobar pagos
+SINPE, importar CSV (valida duplicados en Firestore) y descargar
+actualizaciones. La aplicación no simula
+una aprobación de pago ni permite saltarse la verificación de suscripción sin
+conexión.
 
 ## Recuperación de contraseña en Android
 
@@ -81,7 +92,8 @@ Después genera el APK firmado:
 flutter build apk --release
 ```
 
-La primera release publicada es `1.0.1+2`. La versión actual es `1.0.9+10`. El APK se genera en
+La primera release publicada es `1.0.1+2`. La versión actual es
+`1.0.10+11`. El APK se genera en
 `build/app/outputs/flutter-apk/app-release.apk`. Antes de instalarlo encima de
 la app debug actual, respalda sus datos y desinstálala: la firma de producción
 es distinta y Android no permite actualizar entre firmas diferentes.
@@ -91,6 +103,9 @@ recuperación de contraseña mediante enlaces Android, precios con dos decimales
 el precio mensual de ₡800 y el formato neutro del ticket. `v1.0.8` corrige la
 apertura y validación de enlaces de recuperación en Android. `v1.0.9` registra
 los pagos de fiados en el historial y retira esos registros al reanudar una cuenta.
+`v1.0.10` mejora el uso sin conexión: registra ventas localmente, permite
+consultar el historial local asociado a la cuenta y muestra un mensaje claro
+cuando no es posible verificar la suscripción sin Internet.
 Para futuras versiones, usa una etiqueta superior, adjunta el APK
 con el nombre `POSMOVIL-<versión>.apk` y adjunta también `latest.json`, rellenado con la plantilla
 de `release/latest.json.example`, el SHA-256 real del APK y

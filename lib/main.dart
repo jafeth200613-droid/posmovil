@@ -654,6 +654,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
       await DatabaseHelper.instance.completeSale(
         items: receiptItems,
         date: receiptDate.toString().substring(0, 16),
+        uid: FirebaseAuth.instance.currentUser?.uid ?? '',
       );
     } catch (error) {
       debugPrint('No se pudo guardar la venta localmente: $error');
@@ -913,6 +914,7 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
         amount: total,
         date: DateTime.now().toString().substring(0, 16),
         items: List<Map<String, dynamic>>.from(_cart),
+        ownerUid: FirebaseAuth.instance.currentUser?.uid,
       );
 
       if (!mounted) return;

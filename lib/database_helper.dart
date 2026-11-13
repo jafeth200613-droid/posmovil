@@ -19,7 +19,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -43,7 +43,8 @@ class DatabaseHelper {
         product_name TEXT,
         price REAL,
         date TEXT,
-        fiado_item_id INTEGER
+        fiado_item_id INTEGER,
+        uid TEXT
       )
     ''');
 
@@ -53,7 +54,8 @@ class DatabaseHelper {
         client_name TEXT,
         amount REAL,
         date TEXT,
-        status TEXT NOT NULL DEFAULT 'pending'
+        status TEXT NOT NULL DEFAULT 'pending',
+        owner_uid TEXT
       )
     ''');
     await _createFiadoItemsTable(db);
@@ -66,6 +68,21 @@ class DatabaseHelper {
     if (oldVersion < 5) {
       await _ensureFiadosSchema(db);
       await _ensureFiadoTrackingSchema(db);
+    }
+    if (oldVersion < 6) {
+      await _ensureOfflineOwnershipSchema(db);
+    }
+  }
+
+  Future<void> _ensureOfflineOwnershipSchema(DatabaseExecutor db) async {
+    final fiadoColumns = await _getFiadoColumnInfo(db);
+    if (!fiadoColumns.any((column) => column['name'] == 'owner_uid')) {
+      await db.execute('ALTER TABLE fiados ADD COLUMN owner_uid TEXT');
+    }
+
+    final salesColumns = await db.rawQuery('PRAGMA table_info(sales)');
+    if (!salesColumns.any((column) => column['name'] == 'uid')) {
+      await db.execute('ALTER TABLE sales ADD COLUMN uid TEXT');
     }
   }
 
@@ -222,11 +239,57 @@ class DatabaseHelper {
     return await db.insert('sales', row);
   }
 
+  Future<List<Map<String, dynamic>>> getLocalSales({
+    required String uid,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    if (uid.isEmpty) throw ArgumentError('El usuario no es válido.');
+
+    final db = await instance.database;
+    final rows = await db.query(
+      'sales',
+      where: 'uid = ? AND date >= ? AND date < ?',
+      whereArgs: [
+        uid,
+        start.toString().substring(0, 16),
+        end.toString().substring(0, 16),
+      ],
+      orderBy: 'date DESC, id DESC',
+    );
+    return rows.map((row) {
+      return {
+        ...row,
+        'productName': row['product_name'],
+        'firestoreId': 'local-${row['id']}',
+        'localSaleId': row['id'],
+        'isLocalOnly': true,
+      };
+    }).toList();
+  }
+
+  Future<int> deleteLocalSale(int id, {required String uid}) async {
+    final db = await instance.database;
+    return db.delete(
+      'sales',
+      where: 'id = ? AND uid = ?',
+      whereArgs: [id, uid],
+    );
+  }
+
+  Future<int> deleteLocalSales({required String uid}) async {
+    final db = await instance.database;
+    return db.delete('sales', where: 'uid = ?', whereArgs: [uid]);
+  }
+
   Future<void> completeSale({
     required List<Map<String, dynamic>> items,
     required String date,
+    required String uid,
   }) async {
-    if (items.isEmpty) throw ArgumentError('El carrito está vacío.');
+    if (items.isEmpty || uid.isEmpty) {
+      throw ArgumentError('El carrito o el usuario no son válidos.');
+    }
 
     final db = await instance.database;
     await db.transaction((txn) async {
@@ -275,6 +338,7 @@ class DatabaseHelper {
             'product_name': productName,
             'price': price,
             'date': date,
+            'uid': uid,
           });
         }
       }
@@ -301,6 +365,7 @@ class DatabaseHelper {
     required String clientName,
     required double amount,
     required String date,
+    String? ownerUid,
     String? description,
     List<Map<String, dynamic>> items = const [],
   }) async {
@@ -325,6 +390,14 @@ class DatabaseHelper {
           description ?? 'Cuenta por cobrar de $normalizedName',
         ),
       );
+      if (ownerUid != null && ownerUid.isNotEmpty) {
+        await txn.update(
+          'fiados',
+          {'owner_uid': ownerUid},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
       await _insertFiadoItems(txn, id, items, balance: amount);
       return id;
     });
@@ -335,6 +408,7 @@ class DatabaseHelper {
     required double amount,
     required String date,
     required List<Map<String, dynamic>> items,
+    String? ownerUid,
     String? description,
   }) async {
     final normalizedName = clientName.trim();
@@ -391,6 +465,14 @@ class DatabaseHelper {
                   .join(', '),
         ),
       );
+      if (ownerUid != null && ownerUid.isNotEmpty) {
+        await txn.update(
+          'fiados',
+          {'owner_uid': ownerUid},
+          where: 'id = ?',
+          whereArgs: [fiadoId],
+        );
+      }
       await _insertFiadoItems(txn, fiadoId, items, balance: amount);
       return fiadoId;
     });
@@ -511,7 +593,11 @@ class DatabaseHelper {
     return db.update('fiados', values, where: 'id = ?', whereArgs: [fiadoId]);
   }
 
-  Future<void> setFiadoItemPaid(int itemId, {required bool paid}) async {
+  Future<void> setFiadoItemPaid(
+    int itemId, {
+    required bool paid,
+    String? ownerUid,
+  }) async {
     final db = await instance.database;
     await db.transaction((txn) async {
       final rows = await txn.query(
@@ -536,13 +622,24 @@ class DatabaseHelper {
         throw StateError('No se encontró la cuenta fiada.');
       }
       final fiado = fiadoRows.first;
+      final saleOwnerUid = (fiado['owner_uid'] as String?) ?? ownerUid;
+      if ((fiado['owner_uid'] as String?) == null &&
+          saleOwnerUid != null &&
+          saleOwnerUid.isNotEmpty) {
+        await txn.update(
+          'fiados',
+          {'owner_uid': saleOwnerUid},
+          where: 'id = ?',
+          whereArgs: [item['fiado_id']],
+        );
+      }
       final amount = (fiado['amount'] as num).toDouble();
       final lineTotal =
           (item['unit_price'] as num).toDouble() *
           (item['quantity'] as num).toInt();
 
       if (paid) {
-        await _recordFiadoItemSales(txn, itemId, item);
+        await _recordFiadoItemSales(txn, itemId, item, saleOwnerUid);
         await txn.update(
           'fiados',
           {'amount': (amount - lineTotal).clamp(0, double.infinity)},
@@ -573,7 +670,11 @@ class DatabaseHelper {
     });
   }
 
-  Future<void> setFiadoPaid(int fiadoId, {required bool paid}) async {
+  Future<void> setFiadoPaid(
+    int fiadoId, {
+    required bool paid,
+    String? ownerUid,
+  }) async {
     final db = await instance.database;
     await db.transaction((txn) async {
       final fiadoRows = await txn.query(
@@ -586,6 +687,17 @@ class DatabaseHelper {
         throw StateError('No se encontró la cuenta fiada.');
       }
       final fiado = fiadoRows.first;
+      final saleOwnerUid = (fiado['owner_uid'] as String?) ?? ownerUid;
+      if ((fiado['owner_uid'] as String?) == null &&
+          saleOwnerUid != null &&
+          saleOwnerUid.isNotEmpty) {
+        await txn.update(
+          'fiados',
+          {'owner_uid': saleOwnerUid},
+          where: 'id = ?',
+          whereArgs: [fiadoId],
+        );
+      }
       final items = await txn.query(
         'fiado_items',
         where: 'fiado_id = ?',
@@ -619,7 +731,12 @@ class DatabaseHelper {
       }
 
       for (final itemId in itemIds) {
-        await _setFiadoItemPaidInTransaction(txn, itemId, paid: paid);
+        await _setFiadoItemPaidInTransaction(
+          txn,
+          itemId,
+          paid: paid,
+          ownerUid: saleOwnerUid,
+        );
       }
       await _refreshFiadoStatus(txn, fiadoId);
     });
@@ -629,6 +746,7 @@ class DatabaseHelper {
     Transaction txn,
     int itemId, {
     required bool paid,
+    String? ownerUid,
   }) async {
     final rows = await txn.query(
       'fiado_items',
@@ -649,13 +767,24 @@ class DatabaseHelper {
     );
     if (fiadoRows.isEmpty) throw StateError('No se encontró la cuenta fiada.');
     final fiado = fiadoRows.first;
+    final saleOwnerUid = (fiado['owner_uid'] as String?) ?? ownerUid;
+    if ((fiado['owner_uid'] as String?) == null &&
+        saleOwnerUid != null &&
+        saleOwnerUid.isNotEmpty) {
+      await txn.update(
+        'fiados',
+        {'owner_uid': saleOwnerUid},
+        where: 'id = ?',
+        whereArgs: [item['fiado_id']],
+      );
+    }
     final amount = (fiado['amount'] as num).toDouble();
     final lineTotal =
         (item['unit_price'] as num).toDouble() *
         (item['quantity'] as num).toInt();
 
     if (paid) {
-      await _recordFiadoItemSales(txn, itemId, item);
+      await _recordFiadoItemSales(txn, itemId, item, saleOwnerUid);
       await txn.update(
         'fiados',
         {'amount': (amount - lineTotal).clamp(0, double.infinity)},
@@ -687,6 +816,7 @@ class DatabaseHelper {
     Transaction txn,
     int itemId,
     Map<String, Object?> item,
+    String? ownerUid,
   ) async {
     final quantity = (item['quantity'] as num).toInt();
     final price = (item['unit_price'] as num).toDouble();
@@ -697,6 +827,7 @@ class DatabaseHelper {
         'price': price,
         'date': saleDate,
         'fiado_item_id': itemId,
+        if (ownerUid != null && ownerUid.isNotEmpty) 'uid': ownerUid,
       });
     }
   }

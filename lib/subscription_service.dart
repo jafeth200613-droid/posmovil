@@ -100,6 +100,7 @@ class SubscriptionService {
 
     var batch = _firestore.batch();
     var pendingWrites = 0;
+    final commits = <Future<void>>[];
     for (final item in items) {
       final quantity = item['quantity'] as int;
       for (var unitIndex = 0; unitIndex < quantity; unitIndex++) {
@@ -112,15 +113,16 @@ class SubscriptionService {
         });
         pendingWrites++;
         if (pendingWrites == 450) {
-          await batch.commit();
+          commits.add(batch.commit());
           batch = _firestore.batch();
           pendingWrites = 0;
         }
       }
     }
     if (pendingWrites > 0) {
-      await batch.commit();
+      commits.add(batch.commit());
     }
+    await Future.wait(commits);
   }
 
   static Future<void> recordFiadoSales({
@@ -214,6 +216,7 @@ class SubscriptionService {
   static Future<void> _writeFiadoSaleRecords(
     List<FiadoSaleRecord> records,
   ) async {
+    final commits = <Future<void>>[];
     for (var offset = 0; offset < records.length; offset += 450) {
       final batch = _firestore.batch();
       final end = (offset + 450).clamp(0, records.length);
@@ -223,21 +226,24 @@ class SubscriptionService {
           'date': Timestamp.fromDate(record.data['date']! as DateTime),
         });
       }
-      await batch.commit();
+      commits.add(batch.commit());
     }
+    await Future.wait(commits);
   }
 
   static Future<void> _deleteFiadoSaleRecords(
     List<FiadoSaleRecord> records,
   ) async {
+    final commits = <Future<void>>[];
     for (var offset = 0; offset < records.length; offset += 450) {
       final batch = _firestore.batch();
       final end = (offset + 450).clamp(0, records.length);
       for (final record in records.sublist(offset, end)) {
         batch.delete(_firestore.collection('salesHistory').doc(record.id));
       }
-      await batch.commit();
+      commits.add(batch.commit());
     }
+    await Future.wait(commits);
   }
 
   static Stream<QuerySnapshot<Map<String, dynamic>>> watchSales() {
@@ -250,6 +256,7 @@ class SubscriptionService {
   static Future<List<Map<String, dynamic>>> getSales({
     required DateTime start,
     required DateTime end,
+    Source source = Source.serverAndCache,
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -265,7 +272,7 @@ class SubscriptionService {
       query = query.where('uid', isEqualTo: user.uid);
     }
 
-    final snapshot = await query.get();
+    final snapshot = await query.get(GetOptions(source: source));
     return snapshot.docs.map((document) {
       return {...document.data(), 'firestoreId': document.id};
     }).toList();

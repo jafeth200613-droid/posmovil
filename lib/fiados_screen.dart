@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'currency_format.dart';
@@ -119,6 +120,7 @@ class _FiadosScreenState extends State<FiadosScreen> {
         amount: fiado['amount']! as double,
         date: DateTime.now().toString().substring(0, 16),
         items: selectedItems,
+        ownerUid: FirebaseAuth.instance.currentUser?.uid,
       );
       await _cargarFiados();
     } catch (error) {
@@ -186,7 +188,11 @@ class _FiadosScreenState extends State<FiadosScreen> {
     required bool paid,
   }) async {
     final itemId = item['id'] as int;
-    await DatabaseHelper.instance.setFiadoItemPaid(itemId, paid: paid);
+    await DatabaseHelper.instance.setFiadoItemPaid(
+      itemId,
+      paid: paid,
+      ownerUid: FirebaseAuth.instance.currentUser?.uid,
+    );
 
     unawaited(_syncFiadoSales(fiado: fiado, items: [item], paid: paid));
   }
@@ -202,7 +208,11 @@ class _FiadosScreenState extends State<FiadosScreen> {
         .where((item) => (item['status'] == 'paid') != paid)
         .toList();
 
-    await database.setFiadoPaid(fiadoId, paid: paid);
+    await database.setFiadoPaid(
+      fiadoId,
+      paid: paid,
+      ownerUid: FirebaseAuth.instance.currentUser?.uid,
+    );
     var changedItems = changedItemsBefore;
     if (paid && itemsBefore.isEmpty) {
       changedItems = (await database.getFiadoItems(fiadoId))
