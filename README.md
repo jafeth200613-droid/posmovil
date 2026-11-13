@@ -112,6 +112,8 @@ los pagos de fiados en el historial y retira esos registros al reanudar una cuen
 `v1.0.10` mejora el uso sin conexión: registra ventas localmente, permite
 consultar el historial local asociado a la cuenta y muestra un mensaje claro
 cuando no es posible verificar la suscripción sin Internet.
+`v1.0.11` agrega una caché local de suscripción y bloquea el acceso sin conexión
+si ya venció, el estado no está activo o se detecta un retroceso del reloj.
 Para futuras versiones, usa una etiqueta superior, adjunta el APK
 con el nombre `POSMOVIL-<versión>.apk` y adjunta también `latest.json`, rellenado con la plantilla
 de `release/latest.json.example`, el SHA-256 real del APK y

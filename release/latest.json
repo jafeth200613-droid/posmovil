@@ -1,9 +1,9 @@
 {
   "published": true,
   "packageName": "com.jafeth.posmovil",
-  "version": "1.0.10",
-  "buildNumber": 11,
-  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.10/POSMOVIL-1.0.10.apk",
-  "sha256": "04b62475d2720c7432c9928ab79e1848fc0d837d3bfbff6d3ce0a573c1427583",
-  "releaseNotes": "Mejora el uso sin conexión para cobros, Fiados, reportes e historial."
+  "version": "1.0.11",
+  "buildNumber": 12,
+  "apkUrl": "https://github.com/jafeth200613-droid/posmovil/releases/download/v1.0.11/POSMOVIL-1.0.11.apk",
+  "sha256": "376b5f8a2ccad6c59ab5169bc66f860b0798f871e6940baeb94ea3279b4c63f0",
+  "releaseNotes": "Bloquea acceso vencido sin conexión y protege la suscripción ante cambios del reloj del dispositivo."
 }
